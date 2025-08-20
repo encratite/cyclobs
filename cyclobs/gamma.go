@@ -57,28 +57,91 @@ type Event struct {
 }
 
 type Market struct {
-	ConditionID string `json:"condition_id"`
-	QuestionID string `json:"question_id"`
-	Tokens []Token `json:"tokens"`
-	Rewards Rewards `json:"rewards"`
-	MinimumOrderSize string `json:"minimum_order_size"`
-	MinimumTickSize string `json:"minimum_tick_size"`
-	Category string `json:"category"`
-	EndDateISO string `json:"end_date_iso"`
-	GameStartTime string `json:"game_start_time"`
+	ID string `json:"id"`
 	Question string `json:"question"`
-	MarketSlug string `json:"market_slug"`
-	MinIncentiveSize string `json:"min_incentive_size"`
-	MaxIncentiveSize string `json:"max_incentive_size"`
+	ConditionID string `json:"conditionId"`
+	Slug string `json:"slug"`
+	EndDate string `json:"endDate"`
+	Liquidity string `json:"liquidity"`
+	StartDate string `json:"startDate"`
+	Image string `json:"image"`
+	Icon string `json:"icon"`
+	Description string `json:"description"`
+	Outcomes string `json:"outcomes"`
+	OutcomePrices string `json:"outcomePrices"`
+	Volume string `json:"volume"`
 	Active bool `json:"active"`
 	Closed bool `json:"closed"`
-	SecondsDelay int `json:"seconds_delay"`
-	Icon string `json:"icon"`
-	FPMM string `json:"fpmm"`
+	MarketMakerAddress string `json:"marketMakerAddress"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+	New bool `json:"new"`
+	Featured bool `json:"featured"`
+	SubmittedBy string `json:"submitted_by"`
+	Archived bool `json:"archived"`
+	ResolvedBy string `json:"resolvedBy"`
+	Restricted bool `json:"restricted"`
+	GroupItemTitle string `json:"groupItemTitle"`
+	GroupItemThreshold string `json:"groupItemThreshold"`
+	EnableOrderBook bool `json:"enableOrderBook"`
+	OrderPriceMinTickSize float64 `json:"orderPriceMinTickSize"`
+	OrderMinSize int `json:"orderMinSize"`
+	VolumeNum float64 `json:"volumeNum"`
+	LiquidityNum float64 `json:"liquidityNum"`
+	EndDateISO string `json:"endDateIso"`
+	StartDateISO string `json:"startDateIso"`
+	HasReviewedDates bool `json:"hasReviewedDates"`
+	Volume24Hr float64 `json:"volume24hr"`
+	Volume1Wk float64 `json:"volume1wk"`
+	Volume1Mo float64 `json:"volume1mo"`
+	Volume1Yr float64 `json:"volume1yr"`
+	CLOBTokenIDs string `json:"clobTokenIds"`
+	UMABond string `json:"umaBond"`
+	UMAReward string `json:"umaReward"`
+	Volume24HrCLOB float64 `json:"volume24hrClob"`
+	Volume1WkCLOB float64 `json:"volume1wkClob"`
+	Volume1MoCLOB float64 `json:"volume1moClob"`
+	Volume1YrCLOB float64 `json:"volume1yrClob"`
+	VolumeCLOB float64 `json:"volumeClob"`
+	LiquidityCLOB float64 `json:"liquidityClob"`
+	AcceptingOrders bool `json:"acceptingOrders"`
+	NegRisk bool `json:"negRisk"`
+	NegRiskMarketID string `json:"negRiskMarketID"`
+	NegRiskRequestID string `json:"negRiskRequestID"`
+	Ready bool `json:"ready"`
+	Funded bool `json:"funded"`
+	AcceptingOrdersTimestamp string `json:"acceptingOrdersTimestamp"`
+	CYOM bool `json:"cyom"`
+	Competitive float64 `json:"competitive"`
+	PagerDutyNotificationEnabled bool `json:"pagerDutyNotificationEnabled"`
+	Approved bool `json:"approved"`
+	CLOBRewards []CLOBReward `json:"clobRewards"`
+	RewardsMinSize int `json:"rewardsMinSize"`
+	RewardsMaxSpread float64 `json:"rewardsMaxSpread"`
+	Spread float64 `json:"spread"`
+	OneDayPriceChange float64 `json:"oneDayPriceChange"`
+	OneHourPriceChange float64 `json:"oneHourPriceChange"`
+	OneWeekPriceChange float64 `json:"oneWeekPriceChange"`
+	OneMonthPriceChange float64 `json:"oneMonthPriceChange"`
+	LastTradePrice float64 `json:"lastTradePrice"`
+	BestBid float64 `json:"bestBid"`
+	BestAsk float64 `json:"bestAsk"`
+	AutomaticallyActive bool `json:"automaticallyActive"`
+	ClearBookOnStart bool `json:"clearBookOnStart"`
+	ShowGMPSeries bool `json:"showGmpSeries"`
+	ShowGMPOutcome bool `json:"showGmpOutcome"`
+	ManualActivation bool `json:"manualActivation"`
+	NegRiskOther bool `json:"negRiskOther"`
+	UMAResolutionStatuses string `json:"umaResolutionStatuses"`
+	PendingDeployment bool `json:"pendingDeployment"`
+	Deploying bool `json:"deploying"`
+	DeployingTimestamp string `json:"deployingTimestamp"`
+	RFQEnabled bool `json:"rfqEnabled"`
+	HoldingRewardsEnabled bool `json:"holdingRewardsEnabled"`
 }
 
 type Tag struct {
-	Id string `json:"id"`
+	ID string `json:"id"`
 	Label string `json:"label"`
 	Slug string `json:"slug"`
 	ForceShow bool `json:"forceShow"`
@@ -90,11 +153,12 @@ type Token struct {
 	Outcome string `json:"outcome"`
 }
 
-type Rewards struct {
-	MinSize float64 `json:"min_size"`
-	MaxSpread float64 `json:"max_spread"`
-	EventStartDate string `json:"event_start_date"`
-	EventEndDate string `json:"event_end_date"`
-	InGameMultiplier float64 `json:"in_game_multiplier"`
-	RewardEpoch float64 `json:"reward_epoch"`
+type CLOBReward struct {
+	ID string `json:"id"`
+	ConditionID string `json:"conditionId"`
+	AssetAddress string `json:"assetAddress"`
+	RewardsAmount int `json:"rewardsAmount"`
+	RewardsDailyRate int `json:"rewardsDailyRate"`
+	StartDate string `json:"startDate"`
+	EndDate string `json:"endDate"`
 }
