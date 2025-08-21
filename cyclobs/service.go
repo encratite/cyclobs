@@ -23,18 +23,20 @@ func RunService() {
 		fmt.Printf("Received %d events\n", len(events))
 	}
 	assetIDs := []string{}
+	markets := []Market{}
 	for _, event := range events {
 		for _, market := range event.Markets {
-			tokenIDs := getCLOBTokenIds(&market)
+			tokenIDs := getCLOBTokenIds(market)
 			if len(tokenIDs) != 2 {
-				log.Printf("Invalid CLOB token ID string: %s", market.CLOBTokenIDs)
+				// log.Printf("Invalid CLOB token ID string for market \"%s\": \"%s\"", market.Slug, market.CLOBTokenIDs)
 				continue
 			}
 			yesTokenID := tokenIDs[0]
 			assetIDs = append(assetIDs, yesTokenID)
+			markets = append(markets, market)
 		}
 	}
-	subscribeToMarkets(assetIDs)
+	subscribeToMarkets(assetIDs, markets)
 }
 
 func getEvents(tagSlug string) []Event {
@@ -71,7 +73,7 @@ func getEvents(tagSlug string) []Event {
 	return eventsResponse.Data
 }
 
-func subscribeToMarkets(assetIDs []string) {
+func subscribeToMarkets(assetIDs []string, markets []Market) {
 	url := "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 	connection, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
@@ -79,7 +81,6 @@ func subscribeToMarkets(assetIDs []string) {
 		return
 	}
 	defer connection.Close()
-	assetIDs = assetIDs[:10]
 	subscription := Subscription{
 		AssetIDs: &assetIDs,
 		Type: "market",
@@ -112,27 +113,36 @@ func subscribeToMarkets(assetIDs []string) {
 			return
 		}
 		messageString := string(message)
-		if messageString == "[]\n" {
-			fmt.Printf("Got empty garbage\n")
-			continue
-		} else if messageString == "PONG" {
-			fmt.Printf("Got PONG\n")
+		if messageString == "PONG" {
 			continue
 		}
-		var bookMessage BookMessage
-		err = json.Unmarshal(message, &bookMessage)
+		var bookMessages []BookMessage
+		err = json.Unmarshal(message, &bookMessages)
 		if err != nil {
 			log.Printf("Failed to deserialize book message: %v\n", err)
 			log.Printf("Message: %s\n", messageString)
 			return
 		}
-		fmt.Printf("Received a book message for asset %s\n", bookMessage.AssetID)
+		if len(bookMessages) > 1 {
+			fmt.Printf("Received %d book messages\n", len(bookMessages))
+		}
+		for _, bookMessage := range bookMessages {
+			if len(bookMessage.Changes) > 0 {
+				market, exists := find(markets, func (m Market) bool {
+					return m.ConditionID == bookMessage.Market
+				})
+				if exists {
+					change := bookMessage.Changes[0]
+					log.Printf("Price change for market \"%s\": %s x $%s (%s)", market.Slug, change.Size, change.Price, change.Side)
+				}
+			}
+		}
 	}
 }
 
 var clobTokenIdPattern = regexp.MustCompile(`\d+`)
 
-func getCLOBTokenIds(market *Market) []string {
+func getCLOBTokenIds(market Market) []string {
 	tokenIds := []string{}
 	matches := clobTokenIdPattern.FindAllStringSubmatch(market.CLOBTokenIDs, -1)
 	for _, match := range matches {

@@ -14,16 +14,23 @@ type Auth struct {
 }
 
 type BookMessage struct {
-	EventType string `json:"event_type"`
-	AssetID string `json:"asset_id"`
 	Market string `json:"market"`
+	AssetID string `json:"asset_id"`
 	Timestamp string `json:"timestamp"`
 	Hash string `json:"hash"`
-	Buys []OrderSummary `json:"buys"`
-	Sells []OrderSummary `json:"sells"`
+	Bids []OrderSummary `json:"bids"`
+	Asks []OrderSummary `json:"asks"`
+	Changes []PriceChange `json:"changes"`
+	EventType string `json:"event_type"`
 }
 
 type OrderSummary struct {
 	Price string `json:"price"`
+	Size string `json:"size"`
+}
+
+type PriceChange struct {
+	Price string `json:"price"`
+	Side string `json:"side"`
 	Size string `json:"size"`
 }
