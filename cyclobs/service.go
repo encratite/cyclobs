@@ -7,22 +7,38 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
+	"time"
+
+	"github.com/gorilla/websocket"
 )
 
-const gammaURL = "https://gamma-api.polymarket.com"
 const eventsLimit = 50
 
 func RunService() {
 	loadConfiguration()
 	events := getEvents("politics")
 	if events != nil {
-		fmt.Printf("Received %d events", len(events))
+		fmt.Printf("Received %d events\n", len(events))
 	}
+	assetIDs := []string{}
+	for _, event := range events {
+		for _, market := range event.Markets {
+			tokenIDs := getCLOBTokenIds(&market)
+			if len(tokenIDs) != 2 {
+				log.Printf("Invalid CLOB token ID string: %s", market.CLOBTokenIDs)
+				continue
+			}
+			yesTokenID := tokenIDs[0]
+			assetIDs = append(assetIDs, yesTokenID)
+		}
+	}
+	subscribeToMarkets(assetIDs)
 }
 
 func getEvents(tagSlug string) []Event {
-	base := fmt.Sprintf("%s/events/pagination", gammaURL)
+	base := "https://gamma-api.polymarket.com/events/pagination"
 	u, err := url.Parse(base)
 	if err != nil {
 		log.Fatalf("Unable to parse URL (%s): %v", base, err)
@@ -53,4 +69,75 @@ func getEvents(tagSlug string) []Event {
 		return nil
 	}
 	return eventsResponse.Data
+}
+
+func subscribeToMarkets(assetIDs []string) {
+	url := "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+	connection, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		log.Printf("Failed to connect to market channel: %v", err)
+		return
+	}
+	defer connection.Close()
+	assetIDs = assetIDs[:10]
+	subscription := Subscription{
+		AssetIDs: &assetIDs,
+		Type: "market",
+	}
+	subscriptionData, err := json.Marshal(subscription)
+	if err != nil {
+		log.Printf("Failed to serialize subscription object: %v\n", err)
+		return
+	}
+	err = connection.WriteMessage(websocket.TextMessage, subscriptionData)
+	if err != nil {
+		log.Printf("Failed to send subscription data: %v\n", err)
+		return
+	}
+	go func () {
+		for {
+			pingData := []byte("PING")
+			err := connection.WriteMessage(websocket.TextMessage, pingData)
+			if err != nil {
+				log.Printf("Failed to send ping: %v\n", err)
+				break
+			}
+			time.Sleep(10 * time.Second)
+		}
+	}()
+	for {
+		_, message, err := connection.ReadMessage()
+		if err != nil {
+			log.Printf("Failed to read message: %v\n", err)
+			return
+		}
+		messageString := string(message)
+		if messageString == "[]\n" {
+			fmt.Printf("Got empty garbage\n")
+			continue
+		} else if messageString == "PONG" {
+			fmt.Printf("Got PONG\n")
+			continue
+		}
+		var bookMessage BookMessage
+		err = json.Unmarshal(message, &bookMessage)
+		if err != nil {
+			log.Printf("Failed to deserialize book message: %v\n", err)
+			log.Printf("Message: %s\n", messageString)
+			return
+		}
+		fmt.Printf("Received a book message for asset %s\n", bookMessage.AssetID)
+	}
+}
+
+var clobTokenIdPattern = regexp.MustCompile(`\d+`)
+
+func getCLOBTokenIds(market *Market) []string {
+	tokenIds := []string{}
+	matches := clobTokenIdPattern.FindAllStringSubmatch(market.CLOBTokenIDs, -1)
+	for _, match := range matches {
+		tokenId := match[0]
+		tokenIds = append(tokenIds, tokenId)
+	}
+	return tokenIds
 }
