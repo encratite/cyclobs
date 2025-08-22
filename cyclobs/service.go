@@ -1,6 +1,7 @@
 package cyclobs
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -244,7 +245,7 @@ func postOrder(tokenID string, size int, limit float64) error {
 		log.Fatalf("Failed to build order signature: %v", err)
 	}
 	orderSignatureString := hexPrefix + common.Bytes2Hex(orderSignature)
-	now := time.Now()
+	now := time.Now().UTC()
 	timestamp := now.Unix()
 	method := "POST"
 	requestPath := "/order"
@@ -274,8 +275,13 @@ func postOrder(tokenID string, size int, limit float64) error {
 		log.Fatalf("Failed to serialize order: %v", err)
 	}
 	body := string(bodyBytes)
-	message := strconv.FormatInt(timestamp, 10) + method + requestPath + body
-	hash := hmac.New(sha256.New, privateKeyBytes)
+	timestampString := strconv.FormatInt(timestamp, 10)
+	message := timestampString + method + requestPath + body
+	secretBytes, err := base64.StdEncoding.DecodeString(configuration.Secret)
+	if err != nil {
+		log.Fatalf("Failed to decode secret: %v", err)
+	}
+	hash := hmac.New(sha256.New, secretBytes)
 	hash.Write([]byte(message))
 	hashBytes := hash.Sum(nil)
 	hmacSignature := base64.StdEncoding.EncodeToString(hashBytes)
@@ -283,5 +289,30 @@ func postOrder(tokenID string, size int, limit float64) error {
 	hmacSignature = strings.ReplaceAll(hmacSignature, "/", "_")
 	fmt.Printf("Order signature: %s\n", orderSignatureString)
 	fmt.Printf("HMAC signature: %s\n", hmacSignature)
+	url := "https://clob.polymarket.com/order"
+	buffer := bytes.NewBuffer(bodyBytes)
+	request, err := http.NewRequest(method, url, buffer)
+	if err != nil {
+		log.Fatalf("Failed to create HTTP request: %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("POLY_ADDRESS", configuration.PolygonAddress)
+	request.Header.Set("POLY_API_KEY", configuration.APIKey)
+	request.Header.Set("POLY_PASSPHRASE", configuration.Passphrase)
+	request.Header.Set("POLY_SIGNATURE", hmacSignature)
+	request.Header.Set("POLY_TIMESTAMP", timestampString)
+	client := &http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		log.Printf("Failed to POST order: %v", err)
+		return err
+	}
+	defer response.Body.Close()
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Failed to read response after posting order: %v", err)
+		return err
+	}
+	fmt.Printf("Response body: %s\n", responseBody)
 	return nil
 }

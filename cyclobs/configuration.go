@@ -13,6 +13,7 @@ type Configuration struct {
 	PrivateKey string `yaml:"privateKey"`
 	PolygonAddress string `yaml:"polygonAddress"`
 	APIKey string `yaml:"apiKey"`
+	Secret string `yaml:"secret"`
 	Passphrase string `yaml:"passphrase"`
 }
 
