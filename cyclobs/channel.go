@@ -22,6 +22,10 @@ type BookMessage struct {
 	Asks []OrderSummary `json:"asks"`
 	Changes []PriceChange `json:"changes"`
 	EventType string `json:"event_type"`
+	FeeRateBPs string `json:"fee_rate_bps"`
+	Price string `json:"price"`
+	Side string `json:"side"`
+	Size string `json:"size"`
 }
 
 type OrderSummary struct {

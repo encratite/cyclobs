@@ -11,6 +11,9 @@ const configurationPath = "configuration/configuration.yaml"
 type Configuration struct {
 	ProxyAddress string `yaml:"proxyAddress"`
 	PrivateKey string `yaml:"privateKey"`
+	PolygonAddress string `yaml:"polygonAddress"`
+	APIKey string `yaml:"apiKey"`
+	Passphrase string `yaml:"passphrase"`
 }
 
 var configuration *Configuration

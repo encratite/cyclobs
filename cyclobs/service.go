@@ -1,29 +1,70 @@
 package cyclobs
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/websocket"
+	"github.com/polymarket/go-order-utils/pkg/builder"
+	"github.com/polymarket/go-order-utils/pkg/model"
 )
 
 const eventsLimit = 50
+const marketChannelLimit = 500
+const priceChangeEvent = "price_change"
+const lastTradePriceEvent = "last_trade_price"
+const chainId = 137
+const baseTicks = 10000
+const winnerTicks = 100 * baseTicks
+const centsPerDollar = 100.0
+const hexPrefix = "0x"
+
+type NewOrder struct {
+	DeferExec bool `json:"deferExec"`
+	Order Order `json:"order"`
+	Owner string `json:"owner"`
+	OrderType string `json:"orderType"`
+}
+
+type Order struct {
+	Salt int64 `json:"salt"`
+	Maker string `json:"maker"`
+	Signer string `json:"signer"`
+	Taker string `json:"taker"`
+	TokenID string `json:"tokenId"`
+	MakerAmount string `json:"makerAmount"`
+	TakerAmount string `json:"takerAmount"`
+	Side string `json:"side"`
+	Expiration string `json:"expiration"`
+	Nonce string `json:"nonce"`
+	FeeRateBPs string `json:"feeRateBps"`
+	SignatureType int `json:"signatureType"`
+	Signature string `json:"signature"`
+}
 
 func RunService() {
 	loadConfiguration()
-	events := getEvents("politics")
+	events := getEvents("economy")
 	if events != nil {
 		fmt.Printf("Received %d events\n", len(events))
 	}
 	assetIDs := []string{}
 	markets := []Market{}
+	minTickSizes := map[float64]int{}
 	for _, event := range events {
 		for _, market := range event.Markets {
 			tokenIDs := getCLOBTokenIds(market)
@@ -31,12 +72,18 @@ func RunService() {
 				// log.Printf("Invalid CLOB token ID string for market \"%s\": \"%s\"", market.Slug, market.CLOBTokenIDs)
 				continue
 			}
+			minTickSizes[market.OrderPriceMinTickSize] += 1
 			yesTokenID := tokenIDs[0]
+			if market.Slug == "fed-decreases-interest-rates-by-25-bps-after-september-2025-meeting" {
+				fmt.Printf("Token ID: %s\n", yesTokenID)
+			}
 			assetIDs = append(assetIDs, yesTokenID)
 			markets = append(markets, market)
 		}
 	}
-	subscribeToMarkets(assetIDs, markets)
+	// subscribeToMarkets(assetIDs, markets)
+	tokenID := "56831000532202254811410354120402056896323359630546371545035370679912675847818"
+	postOrder(tokenID, 5, 0.07)
 }
 
 func getEvents(tagSlug string) []Event {
@@ -74,6 +121,9 @@ func getEvents(tagSlug string) []Event {
 }
 
 func subscribeToMarkets(assetIDs []string, markets []Market) {
+	if len(assetIDs) > marketChannelLimit || len(markets) > marketChannelLimit {
+		log.Fatalf("Too many markets to subscribe to (%d)", len(assetIDs))
+	}
 	url := "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 	connection, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
@@ -127,14 +177,17 @@ func subscribeToMarkets(assetIDs []string, markets []Market) {
 			fmt.Printf("Received %d book messages\n", len(bookMessages))
 		}
 		for _, bookMessage := range bookMessages {
-			if len(bookMessage.Changes) > 0 {
-				market, exists := find(markets, func (m Market) bool {
-					return m.ConditionID == bookMessage.Market
-				})
-				if exists {
-					change := bookMessage.Changes[0]
-					log.Printf("Price change for market \"%s\": %s x $%s (%s)", market.Slug, change.Size, change.Price, change.Side)
-				}
+			market, exists := find(markets, func (m Market) bool {
+				return m.ConditionID == bookMessage.Market
+			})
+			if !exists {
+				continue
+			}
+			if bookMessage.EventType == priceChangeEvent && len(bookMessage.Changes) > 0 {
+				// change := bookMessage.Changes[0]
+				// log.Printf("Price change for market \"%s\": size = %s, price = %s, side = %s", market.Slug, change.Size, change.Price, change.Side)
+			} else if bookMessage.EventType == lastTradePriceEvent {
+				log.Printf("Last trade price for market \"%s\": size = %s, price = %s, side = %s", market.Slug, bookMessage.Size, bookMessage.Price, bookMessage.Side)
 			}
 		}
 	}
@@ -150,4 +203,85 @@ func getCLOBTokenIds(market Market) []string {
 		tokenIds = append(tokenIds, tokenId)
 	}
 	return tokenIds
+}
+
+func postOrder(tokenID string, size int, limit float64) error {
+	bigChainId := big.NewInt(chainId)
+	orderBuilder := builder.NewExchangeOrderBuilderImpl(bigChainId, nil)
+	makerAmount := int64(float64(size) * centsPerDollar * limit * baseTicks)
+	takerAmount := int64(size) * int64(winnerTicks)
+	orderData := model.OrderData{
+		Maker: configuration.ProxyAddress,
+		Signer: configuration.PolygonAddress,
+		Taker: "0x0000000000000000000000000000000000000000",
+		TokenId: tokenID,
+		MakerAmount: strconv.FormatInt(makerAmount, 10),
+		TakerAmount: strconv.FormatInt(takerAmount, 10),
+		Side: model.BUY,
+		Expiration: "0",
+		Nonce: "0",
+		FeeRateBps: "0",
+	}
+	orderModel, err := orderBuilder.BuildOrder(&orderData)
+	if err != nil {
+		log.Fatalf("Failed to build order: %v", err)
+	}
+	orderHash, err := orderBuilder.BuildOrderHash(orderModel, model.CTFExchange)
+	if err != nil {
+		log.Fatalf("Failed to build order hash: %v", err)
+	}
+	privateKeyString := configuration.PrivateKey
+	if privateKeyString[:len(hexPrefix)] == hexPrefix {
+		privateKeyString = privateKeyString[len(hexPrefix):]
+	}
+	privateKeyBytes := common.Hex2Bytes(privateKeyString)
+	privateKey, err := crypto.ToECDSA(privateKeyBytes)
+	if err != nil {
+		log.Fatalf("Failed to create ECDSA: %v", err)
+	}
+	orderSignature, err := orderBuilder.BuildOrderSignature(privateKey, orderHash)
+	if err != nil {
+		log.Fatalf("Failed to build order signature: %v", err)
+	}
+	orderSignatureString := hexPrefix + common.Bytes2Hex(orderSignature)
+	now := time.Now()
+	timestamp := now.Unix()
+	method := "POST"
+	requestPath := "/order"
+	order := Order{
+		Salt: orderModel.Salt.Int64(),
+		Maker: orderData.Maker,
+		Signer: orderData.Signer,
+		Taker: orderData.Taker,
+		TokenID: orderData.TokenId,
+		MakerAmount: orderData.MakerAmount,
+		TakerAmount: orderData.TakerAmount,
+		Side: "BUY",
+		Expiration: orderData.Expiration,
+		Nonce: orderData.Nonce,
+		FeeRateBPs: orderData.FeeRateBps,
+		SignatureType: 1,
+		Signature: orderSignatureString,
+	}
+	newOrder := NewOrder{
+		DeferExec: false,
+		Order: order,
+		Owner: configuration.APIKey,
+		OrderType: "GTC",
+	}
+	bodyBytes, err := json.Marshal(newOrder)
+	if err != nil {
+		log.Fatalf("Failed to serialize order: %v", err)
+	}
+	body := string(bodyBytes)
+	message := strconv.FormatInt(timestamp, 10) + method + requestPath + body
+	hash := hmac.New(sha256.New, privateKeyBytes)
+	hash.Write([]byte(message))
+	hashBytes := hash.Sum(nil)
+	hmacSignature := base64.StdEncoding.EncodeToString(hashBytes)
+	hmacSignature = strings.ReplaceAll(hmacSignature, "+", "-")
+	hmacSignature = strings.ReplaceAll(hmacSignature, "/", "_")
+	fmt.Printf("Order signature: %s\n", orderSignatureString)
+	fmt.Printf("HMAC signature: %s\n", hmacSignature)
+	return nil
 }
