@@ -4,6 +4,9 @@ import (
 	"log"
 	"os"
 	"slices"
+	"strconv"
+
+	"golang.org/x/sys/windows"
 )
 
 func readFile(path string) []byte {
@@ -24,4 +27,19 @@ func find[T any](slice []T, match func (T) bool) (T, bool) {
 		var zeroValue T
 		return zeroValue, false
 	}
+}
+
+var (
+	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
+	procBeep = kernel32.NewProc("Beep")
+)
+
+func beep() {
+	frequency := 900
+	duration := 800
+	procBeep.Call(uintptr(frequency), uintptr(duration))
+}
+
+func intToString(integer int64) string {
+	return strconv.FormatInt(integer, 10)
 }

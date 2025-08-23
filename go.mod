@@ -10,6 +10,6 @@ require (
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/polymarket/go-order-utils v1.22.6 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
