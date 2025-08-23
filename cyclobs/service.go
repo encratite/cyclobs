@@ -1,23 +1,27 @@
 package cyclobs
 
 import (
-	"fmt"
+	"log"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/polymarket/go-order-utils/pkg/model"
 )
 
 const eventsLimit = 50
 
+type positionState struct {
+	size float64
+	added time.Time
+}
+
 func RunService() {
 	loadConfiguration()
+	go runCleaner()
 	events, err := getEvents("economy")
 	if err != nil {
 		return
-	}
-	if events != nil {
-		fmt.Printf("Received %d events\n", len(events))
 	}
 	assetIDs := []string{}
 	markets := []Market{}
@@ -27,34 +31,66 @@ func RunService() {
 		for _, market := range event.Markets {
 			tokenIDs := getCLOBTokenIds(market)
 			if len(tokenIDs) != 2 {
-				// log.Printf("Invalid CLOB token ID string for market \"%s\": \"%s\"", market.Slug, market.CLOBTokenIDs)
 				continue
 			}
 			minTickSizes[market.OrderPriceMinTickSize] += 1
 			negRisk[market.NegRisk] += 1
 			yesTokenID := tokenIDs[0]
-			if market.Slug == "fed-decreases-interest-rates-by-25-bps-after-september-2025-meeting" {
-				fmt.Printf("Token ID: %s\n", yesTokenID)
-				fmt.Printf("Tick size: %.4f\n", market.OrderPriceMinTickSize)
-				fmt.Printf("Neg risk: %t\n", market.NegRisk)
-			}
 			assetIDs = append(assetIDs, yesTokenID)
 			markets = append(markets, market)
 		}
-	}
-	for key, value := range negRisk {
-		fmt.Printf("NegRisk = %t: %d\n", key, value)
 	}
 	// subscribeToMarkets(assetIDs, markets)
 	// tokenID := "56831000532202254811410354120402056896323359630546371545035370679912675847818"
 	// postOrder(tokenID, model.BUY, 5, 0.07, true, 15 * 60)
 	// beep()
-	positions, _ := getPositions()
-	fmt.Printf("Retrieved %d positions\n", len(positions))
-	for _, position := range positions {
-		size := int(position.Size)
-		limit := position.CurPrice - 0.02
-		postOrder(position.Asset, model.SELL, size, limit, position.NegativeRisk, 15 * 60)
+}
+
+func runCleaner() {
+	cleanerConfig := configuration.Cleaner
+	states := map[string]positionState{}
+	sleep := func() {
+		duration := time.Duration(*cleanerConfig.Interval) * time.Second
+		time.Sleep(duration)
+	}
+	for {
+		positions, err := getPositions()
+		if err != nil {
+			sleep()
+			continue
+		}
+		now := time.Now()
+		positionExpiration := time.Duration(*cleanerConfig.Expiration) * time.Second
+		for _, position := range positions {
+			state, exists := states[position.Asset]
+			if !exists {
+				state = positionState{
+					size: position.Size,
+					added: now,
+				}
+				states[position.Asset] = state
+				log.Printf("Detected new position in cleaner: slug = %s, size = %.2f, added = %s\n", position.Slug, position.Size, now)
+				continue
+			}
+			if state.size != position.Size {
+				log.Printf("Size of position %s has changed from %.2f to %.2f, resetting expiration\n", position.Slug, state.size, position.Size)
+				states[position.Asset] = positionState{
+					size: position.Size,
+					added: now,
+				}
+				continue
+			}
+			age := now.Sub(state.added)
+			if age < positionExpiration {
+				continue
+			}
+			log.Printf("Position %s has expired, closing it\n", position.Slug)
+			size := int(position.Size)
+			limit := max(position.CurPrice - *cleanerConfig.Tolerance, 0.05)
+			orderExpiration := *cleanerConfig.Interval
+			postOrder(position.Asset, model.SELL, size, limit, position.NegativeRisk, orderExpiration)
+		}
+		sleep()
 	}
 }
 

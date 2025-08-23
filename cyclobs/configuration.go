@@ -11,6 +11,7 @@ const configurationPath = "configuration/configuration.yaml"
 type Configuration struct {
 	Credentials Credentials `yaml:"credentials"`
 	Live bool `yaml:"live"`
+	Cleaner CleanerConfiguration `yaml:"cleaner"`
 	Triggers []Trigger `yaml:"triggers"`
 }
 
@@ -21,6 +22,12 @@ type Credentials struct {
 	APIKey string `yaml:"apiKey"`
 	Secret string `yaml:"secret"`
 	Passphrase string `yaml:"passphrase"`
+}
+
+type CleanerConfiguration struct {
+	Interval *int `yaml:"interval"`
+	Expiration *int `yaml:"expiration"`
+	Tolerance *float64 `yaml:"tolerance"`
 }
 
 type Trigger struct {
@@ -45,8 +52,21 @@ func loadConfiguration() {
 	if err != nil {
 		log.Fatal("Failed to unmarshal YAML:", err)
 	}
+	configuration.Cleaner.validate()
 	for _, trigger := range configuration.Triggers {
 		trigger.validate()
+	}
+}
+
+func (c *CleanerConfiguration) validate() {
+	if c.Interval == nil || *c.Interval < 60 {
+		log.Fatalf("Invalid interval in cleaner configuration")
+	}
+	if c.Expiration == nil || *c.Expiration < 60 {
+		log.Fatalf("Invalid expiration in cleaner configuration")
+	}
+	if c.Tolerance == nil || *c.Tolerance < 0.01 || *c.Tolerance > 0.2 {
+		log.Fatalf("Invalid tolerance in cleaner configuration")
 	}
 }
 
