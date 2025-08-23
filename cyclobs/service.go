@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+
+	"github.com/polymarket/go-order-utils/pkg/model"
 )
 
 const eventsLimit = 50
@@ -45,10 +47,15 @@ func RunService() {
 	}
 	// subscribeToMarkets(assetIDs, markets)
 	// tokenID := "56831000532202254811410354120402056896323359630546371545035370679912675847818"
-	// postOrder(tokenID, 5, 0.07, true, 15 * 60)
+	// postOrder(tokenID, model.BUY, 5, 0.07, true, 15 * 60)
 	// beep()
 	positions, _ := getPositions()
 	fmt.Printf("Retrieved %d positions\n", len(positions))
+	for _, position := range positions {
+		size := int(position.Size)
+		limit := position.CurPrice - 0.02
+		postOrder(position.Asset, model.SELL, size, limit, position.NegativeRisk, 15 * 60)
+	}
 }
 
 var clobTokenIdPattern = regexp.MustCompile(`\d+`)

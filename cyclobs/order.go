@@ -22,9 +22,8 @@ import (
 
 const (
 	chainId = 137
-	baseTicks = 10000
-	winnerTicks = 100 * baseTicks
-	centsPerDollar = 100.0
+	centsPerDollar = 100
+	ticksPerCent = int64(10000)
 	hexPrefix = "0x"
 	orderTypeGTC = "GTC"
 	orderTypeGTD = "GTD"
@@ -62,7 +61,7 @@ type OrderResponse struct {
 	Success bool `json:"success"`
 }
 
-func postOrder(tokenID string, size int, limit float64, negRisk bool, expiration int) error {
+func postOrder(tokenID string, side model.Side, size int, limit float64, negRisk bool, expiration int) error {
 	if len(tokenID) < 20 {
 		log.Fatalf("Invalid tokenID")
 	}
@@ -75,15 +74,24 @@ func postOrder(tokenID string, size int, limit float64, negRisk bool, expiration
 	if expiration < 0 {
 		log.Fatalf("Invalid expiration: %d", expiration)
 	}
+	limit = float64(int(limit * centsPerDollar)) / float64(centsPerDollar)
 	bigChainId := big.NewInt(chainId)
 	orderBuilder := builder.NewExchangeOrderBuilderImpl(bigChainId, nil)
-	makerAmount := int64(float64(size) * centsPerDollar * limit * baseTicks)
-	takerAmount := int64(size) * int64(winnerTicks)
-	expirationString := "0"
+	makerAmount := int64(float64(size) * limit * centsPerDollar) * ticksPerCent
+	takerAmount := int64(size * centsPerDollar) * ticksPerCent
+	if side == model.SELL {
+		makerSwap := takerAmount
+		takerSwap := makerAmount
+		makerAmount = makerSwap
+		takerAmount = takerSwap
+	}
+	var expirationString string
 	if expiration > 0 {
 		expirationDuration := time.Duration(expiration) * time.Second
 		expirationTime := time.Now().Add(expirationDuration).UTC()
 		expirationString = intToString(expirationTime.Unix())
+	} else {
+		expirationString = "0"
 	}
 	orderData := model.OrderData{
 		Maker: configuration.Credentials.ProxyAddress,
@@ -92,7 +100,7 @@ func postOrder(tokenID string, size int, limit float64, negRisk bool, expiration
 		TokenId: tokenID,
 		MakerAmount: intToString(makerAmount),
 		TakerAmount: intToString(takerAmount),
-		Side: model.BUY,
+		Side: side,
 		Expiration: expirationString,
 		Nonce: "0",
 		FeeRateBps: "0",
@@ -128,6 +136,10 @@ func postOrder(tokenID string, size int, limit float64, negRisk bool, expiration
 	timestamp := now.Unix()
 	method := "POST"
 	requestPath := "/order"
+	sideString := "BUY"
+	if side == model.SELL {
+		sideString = "SELL"
+	}
 	order := Order{
 		Salt: orderModel.Salt.Int64(),
 		Maker: orderData.Maker,
@@ -136,7 +148,7 @@ func postOrder(tokenID string, size int, limit float64, negRisk bool, expiration
 		TokenID: orderData.TokenId,
 		MakerAmount: orderData.MakerAmount,
 		TakerAmount: orderData.TakerAmount,
-		Side: "BUY",
+		Side: sideString,
 		Expiration: orderData.Expiration,
 		Nonce: orderData.Nonce,
 		FeeRateBPs: orderData.FeeRateBps,
