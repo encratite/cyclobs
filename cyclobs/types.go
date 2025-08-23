@@ -162,3 +162,70 @@ type CLOBReward struct {
 	StartDate string `json:"startDate"`
 	EndDate string `json:"endDate"`
 }
+
+type Subscription struct {
+	Auth *Auth `json:"auth"`
+	Markets *[]string `json:"markets"`
+	AssetIDs *[]string `json:"assets_ids"`
+	Type string `json:"string"`
+}
+
+type Auth struct {
+	APIKey string `json:"apiKey"`
+	APISecret string `json:"secret"`
+	PassPhrase string `json:"passphrase"`
+}
+
+type BookMessage struct {
+	Market string `json:"market"`
+	AssetID string `json:"asset_id"`
+	Timestamp string `json:"timestamp"`
+	Hash string `json:"hash"`
+	Bids []OrderSummary `json:"bids"`
+	Asks []OrderSummary `json:"asks"`
+	Changes []PriceChange `json:"changes"`
+	EventType string `json:"event_type"`
+	FeeRateBPs string `json:"fee_rate_bps"`
+	Price string `json:"price"`
+	Side string `json:"side"`
+	Size string `json:"size"`
+}
+
+type OrderSummary struct {
+	Price string `json:"price"`
+	Size string `json:"size"`
+}
+
+type PriceChange struct {
+	Price string `json:"price"`
+	Side string `json:"side"`
+	Size string `json:"size"`
+}
+
+type Position struct {
+	ProxyWallet string `json:"proxyWallet"`
+	Asset string `json:"asset"`
+	ConditionID string `json:"conditionId"`
+	Size float64 `json:"size"`
+	AvgPrice float64 `json:"avgPrice"`
+	InitialValue float64 `json:"initialValue"`
+	CurrentValue float64 `json:"currentValue"`
+	CashPnL float64 `json:"cashPnl"`
+	PercentPnL float64 `json:"percentPnl"`
+	TotalBought float64 `json:"totalBought"`
+	RealizedPnL float64 `json:"realizedPnl"`
+	PercentRealizedPnL float64 `json:"percentRealizedPnl"`
+	CurPrice float64 `json:"curPrice"`
+	Redeemable bool `json:"redeemable"`
+	Mergeable bool `json:"mergeable"`
+	Title string `json:"title"`
+	Slug string `json:"slug"`
+	Icon string `json:"icon"`
+	EventSlug string `json:"eventSlug"`
+	Outcome string `json:"outcome"`
+	OutcomeIndex int `json:"outcomeIndex"`
+	OppositeOutcome string `json:"oppositeOutcome"`
+	OppositeAsset string `json:"oppositeAsset"`
+	EndDate string `json:"endDate"`
+	NegativeRisk bool `json:"negativeRisk"`
+}

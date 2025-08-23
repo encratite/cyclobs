@@ -86,8 +86,8 @@ func postOrder(tokenID string, size int, limit float64, negRisk bool, expiration
 		expirationString = intToString(expirationTime.Unix())
 	}
 	orderData := model.OrderData{
-		Maker: configuration.ProxyAddress,
-		Signer: configuration.PolygonAddress,
+		Maker: configuration.Credentials.ProxyAddress,
+		Signer: configuration.Credentials.PolygonAddress,
 		Taker: "0x0000000000000000000000000000000000000000",
 		TokenId: tokenID,
 		MakerAmount: intToString(makerAmount),
@@ -110,7 +110,7 @@ func postOrder(tokenID string, size int, limit float64, negRisk bool, expiration
 	if err != nil {
 		log.Fatalf("Failed to build order hash: %v", err)
 	}
-	privateKeyString := configuration.PrivateKey
+	privateKeyString := configuration.Credentials.PrivateKey
 	if privateKeyString[:len(hexPrefix)] == hexPrefix {
 		privateKeyString = privateKeyString[len(hexPrefix):]
 	}
@@ -150,7 +150,7 @@ func postOrder(tokenID string, size int, limit float64, negRisk bool, expiration
 	newOrder := NewOrder{
 		DeferExec: false,
 		Order: order,
-		Owner: configuration.APIKey,
+		Owner: configuration.Credentials.APIKey,
 		OrderType: orderType,
 	}
 	bodyBytes, err := json.Marshal(newOrder)
@@ -160,7 +160,7 @@ func postOrder(tokenID string, size int, limit float64, negRisk bool, expiration
 	body := string(bodyBytes)
 	timestampString := intToString(timestamp)
 	message := timestampString + method + requestPath + body
-	secretBytes, err := base64.StdEncoding.DecodeString(configuration.Secret)
+	secretBytes, err := base64.StdEncoding.DecodeString(configuration.Credentials.Secret)
 	if err != nil {
 		log.Fatalf("Failed to decode secret: %v", err)
 	}
@@ -179,9 +179,9 @@ func postOrder(tokenID string, size int, limit float64, negRisk bool, expiration
 		log.Fatalf("Failed to create HTTP request: %v", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("POLY_ADDRESS", configuration.PolygonAddress)
-	request.Header.Set("POLY_API_KEY", configuration.APIKey)
-	request.Header.Set("POLY_PASSPHRASE", configuration.Passphrase)
+	request.Header.Set("POLY_ADDRESS", configuration.Credentials.PolygonAddress)
+	request.Header.Set("POLY_API_KEY", configuration.Credentials.APIKey)
+	request.Header.Set("POLY_PASSPHRASE", configuration.Credentials.Passphrase)
 	request.Header.Set("POLY_SIGNATURE", hmacSignature)
 	request.Header.Set("POLY_TIMESTAMP", timestampString)
 	client := &http.Client{}

@@ -1,7 +1,11 @@
 package cyclobs
 
 import (
+	"encoding/json"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -42,4 +46,36 @@ func beep() {
 
 func intToString(integer int64) string {
 	return strconv.FormatInt(integer, 10)
+}
+
+func getJSON[T any](base string, parameters map[string]string) (T, error) {
+	u, err := url.Parse(base)
+	if err != nil {
+		log.Fatalf("Unable to parse URL (%s): %v", base, err)
+	}
+	values := url.Values{}
+	for key, value := range parameters {
+		values.Add(key, value)
+	}
+	u.RawQuery = values.Encode()
+	encoded := u.String()
+	response, err := http.Get(encoded)
+	var empty T
+	if err != nil {
+		log.Printf("Failed to GET markets (%s): %v", encoded, err)
+		return empty, err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Failed to read response (%s): %v", encoded, err)
+		return empty, err
+	}
+	var output T
+	err = json.Unmarshal(body, &output)
+	if err != nil {
+		log.Printf("Failed to parse JSON data (%s): %v", encoded, err)
+		return empty, err
+	}
+	return output, nil
 }

@@ -9,12 +9,28 @@ import (
 const configurationPath = "configuration/configuration.yaml"
 
 type Configuration struct {
+	Credentials Credentials `yaml:"credentials"`
+	Live bool `yaml:"live"`
+	Triggers []Trigger `yaml:"triggers"`
+}
+
+type Credentials struct {
 	ProxyAddress string `yaml:"proxyAddress"`
 	PrivateKey string `yaml:"privateKey"`
 	PolygonAddress string `yaml:"polygonAddress"`
 	APIKey string `yaml:"apiKey"`
 	Secret string `yaml:"secret"`
 	Passphrase string `yaml:"passphrase"`
+}
+
+type Trigger struct {
+	TimeSpan *int `yaml:"timeSpan"`
+	Delta *float64 `yaml:"delta"`
+	MinPrice *float64 `yaml:"minPrice"`
+	MaxPrice *float64 `yaml:"maxPrice"`
+	Limit *float64 `yaml:"limit"`
+	Expiration *int `yaml:"expiration"`
+	Size *int `yaml:"size"`
 }
 
 var configuration *Configuration
@@ -28,5 +44,32 @@ func loadConfiguration() {
 	err := yaml.Unmarshal(yamlData, configuration)
 	if err != nil {
 		log.Fatal("Failed to unmarshal YAML:", err)
+	}
+	for _, trigger := range configuration.Triggers {
+		trigger.validate()
+	}
+}
+
+func (t *Trigger) validate() {
+	if t.TimeSpan == nil || *t.TimeSpan < 60 {
+		log.Fatalf("Invalid time span in trigger configuration")
+	}
+	if t.Delta == nil || *t.Delta < 0.01 || *t.Delta > 0.9 {
+		log.Fatalf("Invalid delta in trigger configuration")
+	}
+	if t.MinPrice == nil || *t.MinPrice < 0.0 {
+		log.Fatalf("Invalid min price in trigger configuration")
+	}
+	if t.MaxPrice == nil || *t.MaxPrice > 1.0 {
+		log.Fatalf("Invalid max price in trigger configuration")
+	}
+	if t.Limit == nil || *t.Limit < 0.01 || *t.Limit > 0.99 {
+		log.Fatalf("Invalid limit in trigger configuration")
+	}
+	if t.Expiration == nil || *t.Expiration <= 0 {
+		log.Fatalf("Invalid expiration in trigger configuration")
+	}
+	if t.Size == nil || *t.Size < 5 || *t.Size > 1000 {
+		log.Fatalf("Invalid position size in trigger configuration")
 	}
 }

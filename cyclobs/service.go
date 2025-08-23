@@ -1,12 +1,7 @@
 package cyclobs
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"log"
-	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 )
@@ -15,7 +10,10 @@ const eventsLimit = 50
 
 func RunService() {
 	loadConfiguration()
-	events := getEvents("economy")
+	events, err := getEvents("economy")
+	if err != nil {
+		return
+	}
 	if events != nil {
 		fmt.Printf("Received %d events\n", len(events))
 	}
@@ -46,43 +44,11 @@ func RunService() {
 		fmt.Printf("NegRisk = %t: %d\n", key, value)
 	}
 	// subscribeToMarkets(assetIDs, markets)
-	tokenID := "56831000532202254811410354120402056896323359630546371545035370679912675847818"
-	postOrder(tokenID, 5, 0.07, true, 15 * 60)
+	// tokenID := "56831000532202254811410354120402056896323359630546371545035370679912675847818"
+	// postOrder(tokenID, 5, 0.07, true, 15 * 60)
 	// beep()
-}
-
-func getEvents(tagSlug string) []Event {
-	base := "https://gamma-api.polymarket.com/events/pagination"
-	u, err := url.Parse(base)
-	if err != nil {
-		log.Fatalf("Unable to parse URL (%s): %v", base, err)
-	}
-	values := url.Values{}
-	values.Add("limit", strconv.FormatInt(eventsLimit, 10))
-	values.Add("archived", "false")
-	values.Add("tag_slug", tagSlug)
-	values.Add("order", "volume24hr")
-	values.Add("ascending", "false")
-	u.RawQuery = values.Encode()
-	encoded := u.String()
-	response, err := http.Get(encoded)
-	if err != nil {
-		log.Printf("Failed to GET markets (%s): %v", encoded, err)
-		return nil
-	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		log.Printf("Failed to read response (%s): %v", encoded, err)
-		return nil
-	}
-	var eventsResponse EventsResponse
-	err = json.Unmarshal(body, &eventsResponse)
-	if err != nil {
-		log.Printf("Failed to parse market JSON data (%s): %v", encoded, err)
-		return nil
-	}
-	return eventsResponse.Data
+	positions, _ := getPositions()
+	fmt.Printf("Retrieved %d positions\n", len(positions))
 }
 
 var clobTokenIdPattern = regexp.MustCompile(`\d+`)
@@ -95,4 +61,32 @@ func getCLOBTokenIds(market Market) []string {
 		tokenIds = append(tokenIds, tokenId)
 	}
 	return tokenIds
+}
+
+func getEvents(tagSlug string) ([]Event, error) {
+	url := "https://gamma-api.polymarket.com/events/pagination"
+	parameters := map[string]string{
+		"limit": strconv.FormatInt(eventsLimit, 10),
+		"archived": "false",
+		"tag_slug": tagSlug,
+		"order": "volume24hr",
+		"ascending": "false",
+	}
+	events, err := getJSON[EventsResponse](url, parameters)
+	if err != nil {
+		return nil, err
+	}
+	return events.Data, nil
+}
+
+func getPositions() ([]Position, error) {
+	url := "https://data-api.polymarket.com/positions"
+	parameters := map[string]string{
+		"user": configuration.Credentials.ProxyAddress,
+	}
+	positions, err := getJSON[[]Position](url, parameters)
+	if err != nil {
+		return nil, err
+	}
+	return positions, nil
 }
