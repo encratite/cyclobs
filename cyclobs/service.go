@@ -66,6 +66,7 @@ func RunService() {
 	assetIDs := []string{}
 	markets := []Market{}
 	minTickSizes := map[float64]int{}
+	negRisk := map[bool]int{}
 	for _, event := range events {
 		for _, market := range event.Markets {
 			tokenIDs := getCLOBTokenIds(market)
@@ -74,17 +75,23 @@ func RunService() {
 				continue
 			}
 			minTickSizes[market.OrderPriceMinTickSize] += 1
+			negRisk[market.NegRisk] += 1
 			yesTokenID := tokenIDs[0]
 			if market.Slug == "fed-decreases-interest-rates-by-25-bps-after-september-2025-meeting" {
 				fmt.Printf("Token ID: %s\n", yesTokenID)
+				fmt.Printf("Tick size: %.4f\n", market.OrderPriceMinTickSize)
+				fmt.Printf("Neg risk: %t\n", market.NegRisk)
 			}
 			assetIDs = append(assetIDs, yesTokenID)
 			markets = append(markets, market)
 		}
 	}
+	for key, value := range negRisk {
+		fmt.Printf("NegRisk = %t: %d\n", key, value)
+	}
 	// subscribeToMarkets(assetIDs, markets)
 	tokenID := "56831000532202254811410354120402056896323359630546371545035370679912675847818"
-	postOrder(tokenID, 5, 0.07)
+	postOrder(tokenID, 5, 0.07, true)
 }
 
 func getEvents(tagSlug string) []Event {
@@ -206,7 +213,7 @@ func getCLOBTokenIds(market Market) []string {
 	return tokenIds
 }
 
-func postOrder(tokenID string, size int, limit float64) error {
+func postOrder(tokenID string, size int, limit float64, negRisk bool) error {
 	bigChainId := big.NewInt(chainId)
 	orderBuilder := builder.NewExchangeOrderBuilderImpl(bigChainId, nil)
 	makerAmount := int64(float64(size) * centsPerDollar * limit * baseTicks)
@@ -222,12 +229,17 @@ func postOrder(tokenID string, size int, limit float64) error {
 		Expiration: "0",
 		Nonce: "0",
 		FeeRateBps: "0",
+		SignatureType: 1,
 	}
 	orderModel, err := orderBuilder.BuildOrder(&orderData)
 	if err != nil {
 		log.Fatalf("Failed to build order: %v", err)
 	}
-	orderHash, err := orderBuilder.BuildOrderHash(orderModel, model.CTFExchange)
+	contract := model.CTFExchange
+	if negRisk {
+		contract = model.NegRiskCTFExchange
+	}
+	orderHash, err := orderBuilder.BuildOrderHash(orderModel, contract)
 	if err != nil {
 		log.Fatalf("Failed to build order hash: %v", err)
 	}
