@@ -10,7 +10,10 @@ const configurationPath = "configuration/configuration.yaml"
 
 type Configuration struct {
 	Credentials Credentials `yaml:"credentials"`
-	Live bool `yaml:"live"`
+	Live *bool `yaml:"live"`
+	TagSlugs []string `yaml:"tagSlugs"`
+	OrderExpiration *int `yaml:"orderExpiration"`
+	PositionLimit *int `yaml:"positionLimit"`
 	Cleaner CleanerConfiguration `yaml:"cleaner"`
 	Triggers []Trigger `yaml:"triggers"`
 }
@@ -36,7 +39,6 @@ type Trigger struct {
 	MinPrice *float64 `yaml:"minPrice"`
 	MaxPrice *float64 `yaml:"maxPrice"`
 	Limit *float64 `yaml:"limit"`
-	Expiration *int `yaml:"expiration"`
 	Size *int `yaml:"size"`
 }
 
@@ -52,8 +54,24 @@ func loadConfiguration() {
 	if err != nil {
 		log.Fatal("Failed to unmarshal YAML:", err)
 	}
-	configuration.Cleaner.validate()
-	for _, trigger := range configuration.Triggers {
+	configuration.validate()
+}
+
+func (c *Configuration) validate() {
+	if c.Live == nil {
+		log.Fatalf("Live flag missing from configuration")
+	}
+	if c.TagSlugs == nil {
+		log.Fatalf("Tag slugs missing from configuration")
+	}
+	if c.OrderExpiration == nil || *c.OrderExpiration < 60 {
+		log.Fatalf("Invalid order expiration in configuration")
+	}
+	if c.PositionLimit == nil || *c.PositionLimit < 1 {
+		log.Fatalf("Invalid position limit in configuration")
+	}
+	c.Cleaner.validate()
+	for _, trigger := range c.Triggers {
 		trigger.validate()
 	}
 }
@@ -85,9 +103,6 @@ func (t *Trigger) validate() {
 	}
 	if t.Limit == nil || *t.Limit < 0.01 || *t.Limit > 0.99 {
 		log.Fatalf("Invalid limit in trigger configuration")
-	}
-	if t.Expiration == nil || *t.Expiration <= 0 {
-		log.Fatalf("Invalid expiration in trigger configuration")
 	}
 	if t.Size == nil || *t.Size < 5 || *t.Size > 1000 {
 		log.Fatalf("Invalid position size in trigger configuration")

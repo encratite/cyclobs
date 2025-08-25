@@ -25,6 +25,8 @@ const (
 	centsPerDollar = 100
 	ticksPerCent = int64(10000)
 	hexPrefix = "0x"
+	sideBuy = "BUY"
+	sideSell = "SELL"
 	orderTypeGTC = "GTC"
 	orderTypeGTD = "GTD"
 )
@@ -73,6 +75,15 @@ func postOrder(tokenID string, side model.Side, size int, limit float64, negRisk
 	}
 	if expiration < 0 {
 		log.Fatalf("Invalid expiration: %d", expiration)
+	}
+	sideString := sideBuy
+	if side == model.SELL {
+		sideString = sideSell
+	}
+	beep()
+	if !*configuration.Live {
+		log.Printf("Not posting %s order for asset %s, system is not live\n", sideString, tokenID)
+		return nil
 	}
 	limit = float64(int(limit * centsPerDollar)) / float64(centsPerDollar)
 	bigChainId := big.NewInt(chainId)
@@ -136,10 +147,6 @@ func postOrder(tokenID string, side model.Side, size int, limit float64, negRisk
 	timestamp := now.Unix()
 	method := "POST"
 	requestPath := "/order"
-	sideString := "BUY"
-	if side == model.SELL {
-		sideString = "SELL"
-	}
 	order := Order{
 		Salt: orderModel.Salt.Int64(),
 		Maker: orderData.Maker,

@@ -21,6 +21,15 @@ func readFile(path string) []byte {
 	return content
 }
 
+func contains[T comparable](slice []T, value T) bool {
+	for _, x := range slice {
+		if x == value {
+			return true
+		}
+	}
+	return false
+}
+
 func find[T any](slice []T, match func (T) bool) (T, bool) {
 	index := slices.IndexFunc(slice, func (element T) bool {
 		return match(element)
@@ -39,13 +48,19 @@ var (
 )
 
 func beep() {
-	frequency := 900
-	duration := 800
-	procBeep.Call(uintptr(frequency), uintptr(duration))
+	go func() {
+		frequency := 900
+		duration := 800
+		procBeep.Call(uintptr(frequency), uintptr(duration))
+	}()
 }
 
 func intToString(integer int64) string {
 	return strconv.FormatInt(integer, 10)
+}
+
+func stringToFloat(floatString string) (float64, error) {
+	return strconv.ParseFloat(floatString, 64)
 }
 
 func getJSON[T any](base string, parameters map[string]string) (T, error) {

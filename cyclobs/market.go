@@ -9,22 +9,16 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const (
-	marketChannelLimit = 500
-	priceChangeEvent = "price_change"
-	lastTradePriceEvent = "last_trade_price"
-	debugMarketChannel = false
-)
+const marketChannelLimit = 500
 
-func subscribeToMarkets(assetIDs []string, markets []Market) {
-	if len(assetIDs) > marketChannelLimit || len(markets) > marketChannelLimit {
-		log.Fatalf("Too many markets to subscribe to (%d)", len(assetIDs))
+func subscribeToMarkets(assetIDs []string, callback func ([]BookMessage)) error {
+	if len(assetIDs) > marketChannelLimit {
+		log.Fatalf("Too many assets to subscribe to (%d)", len(assetIDs))
 	}
 	url := "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 	connection, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
-		log.Printf("Failed to connect to market channel: %v", err)
-		return
+		return fmt.Errorf("Failed to connect to market channel: %v", err)
 	}
 	defer connection.Close()
 	subscription := Subscription{
@@ -33,13 +27,11 @@ func subscribeToMarkets(assetIDs []string, markets []Market) {
 	}
 	subscriptionData, err := json.Marshal(subscription)
 	if err != nil {
-		log.Printf("Failed to serialize subscription object: %v\n", err)
-		return
+		return fmt.Errorf("Failed to serialize subscription object: %v\n", err)
 	}
 	err = connection.WriteMessage(websocket.TextMessage, subscriptionData)
 	if err != nil {
-		log.Printf("Failed to send subscription data: %v\n", err)
-		return
+		return fmt.Errorf("Failed to send subscription data: %v\n", err)
 	}
 	go func () {
 		for {
@@ -52,11 +44,11 @@ func subscribeToMarkets(assetIDs []string, markets []Market) {
 			time.Sleep(10 * time.Second)
 		}
 	}()
+	log.Printf("Subscribed to %d markets\n", len(assetIDs))
 	for {
 		_, message, err := connection.ReadMessage()
 		if err != nil {
-			log.Printf("Failed to read message: %v\n", err)
-			return
+			return fmt.Errorf("Failed to read message: %v\n", err)
 		}
 		messageString := string(message)
 		if messageString == "PONG" {
@@ -65,30 +57,12 @@ func subscribeToMarkets(assetIDs []string, markets []Market) {
 		var bookMessages []BookMessage
 		err = json.Unmarshal(message, &bookMessages)
 		if err != nil {
-			log.Printf("Failed to deserialize book message: %v\n", err)
-			log.Printf("Message: %s\n", messageString)
-			return
+			log.Printf("Failed to deserialize message: %s\n", messageString)
+			return fmt.Errorf("Failed to deserialize book message: %v\n", err)
 		}
 		if len(bookMessages) > 1 {
 			fmt.Printf("Received %d book messages\n", len(bookMessages))
 		}
-		for _, bookMessage := range bookMessages {
-			market, exists := find(markets, func (m Market) bool {
-				return m.ConditionID == bookMessage.Market
-			})
-			if !exists {
-				continue
-			}
-			if bookMessage.EventType == priceChangeEvent && len(bookMessage.Changes) > 0 {
-				if debugMarketChannel {
-					change := bookMessage.Changes[0]
-					log.Printf("Price change for market \"%s\": size = %s, price = %s, side = %s", market.Slug, change.Size, change.Price, change.Side)
-				}
-			} else if bookMessage.EventType == lastTradePriceEvent {
-				if debugMarketChannel {
-					log.Printf("Last trade price for market \"%s\": size = %s, price = %s, side = %s", market.Slug, bookMessage.Size, bookMessage.Price, bookMessage.Side)
-				}
-			}
-		}
+		callback(bookMessages)
 	}
 }

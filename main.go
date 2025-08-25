@@ -3,5 +3,5 @@ package main
 import "cyclobs/cyclobs"
 
 func main() {
-	cyclobs.RunService()
+	cyclobs.RunSystem()
 }
