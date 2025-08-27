@@ -2,12 +2,15 @@ package cyclobs
 
 import (
 	"cmp"
+	"fmt"
 	"log"
 	"regexp"
 	"slices"
 	"sync"
 	"time"
 
+	"github.com/emirpasic/gods/maps/treemap"
+	"github.com/emirpasic/gods/utils"
 	"github.com/gammazero/deque"
 	"github.com/polymarket/go-order-utils/pkg/model"
 )
@@ -15,8 +18,14 @@ import (
 const (
 	eventsLimit = 50
 	reconnectDelay = 60
+	bookEvent = "book"
+	priceChangeEvent = "price_change"
 	lastTradePriceEvent = "last_trade_price"
 	invalidTriggerID = -1
+	invalidFloat64 = -1.0
+	debugPriceChange = false
+	debugOrderBook = false
+	bookSidePrintLimit = 5
 )
 
 type tradingSystem struct {
@@ -30,6 +39,8 @@ type marketSubscription struct {
 	slug string
 	negRisk bool
 	prices deque.Deque[priceEvent]
+	bids *treemap.Map
+	asks *treemap.Map
 	triggered []int
 }
 
@@ -63,6 +74,7 @@ func (s *tradingSystem) run() {
 		if err != nil {
 			sleep()
 		}
+		printMarketStats(markets)
 		s.markets = markets
 		assetIDs := getAssetIDs(markets)
 		err = subscribeToMarkets(assetIDs, func (messages []BookMessage) {
@@ -139,32 +151,82 @@ func (s *tradingSystem) setPositions(positions int) {
 }
 
 func (s *tradingSystem) onBookMessage(message BookMessage) {
-	if message.EventType == lastTradePriceEvent {
-		assetID := message.AssetID
-		subscription, success := s.subscriptions[assetID]
-		if !success {
-			market, exists := s.getMarket(assetID)
-			if !exists {
-				log.Printf("Warning: unable to find matching market for asset ID %s\n", assetID)
-				return
-			}
-			subscription = marketSubscription{
-				slug: market.Slug,
-				negRisk: market.NegRisk,
-				prices: deque.Deque[priceEvent]{},
-				triggered: []int{},
-			}
+	key := message.AssetID
+	subscription, exists := s.getSubscription(key)
+	if !exists {
+		return
+	}
+	switch message.EventType {
+	case bookEvent:
+		s.onBookEvent(message, subscription)
+	case priceChangeEvent:
+		s.onPriceChange(message, subscription)
+	case lastTradePriceEvent:
+		s.onLastTradePrice(message, subscription)
+	}
+	_ = subscription.validateOrderBook()
+	s.subscriptions[key] = subscription
+}
+
+func (s *tradingSystem) onBookEvent(message BookMessage, subscription marketSubscription) {
+	putPriceLevels(subscription.bids, message.Bids)
+	putPriceLevels(subscription.asks, message.Asks)
+	if debugOrderBook {
+		subscription.printOrderBook()
+	}
+}
+
+func (s *tradingSystem) onPriceChange(message BookMessage, subscription marketSubscription) {
+	for i, change := range message.Changes {
+		if debugPriceChange {
+			log.Printf("%s[%d]: slug = %s, price = %s, size = %s, side = %s\n", priceChangeEvent, i, subscription.slug, change.Price, change.Size, change.Side)
 		}
-		price, err := stringToFloat(message.Price)
-		if err != nil {
-			log.Printf("Failed to read price: \"%s\"\n", message.Price)
-			return
+		price, size := getPriceSize(change.Price, change.Size)
+		if price == invalidFloat64 {
+			continue
 		}
-		event := priceEvent{
-			timestamp: time.Now(),
-			price: price,
+		var side, otherSide *treemap.Map
+		switch change.Side {
+		case sideBuy:
+			side = subscription.bids
+			otherSide = subscription.asks
+		case sideSell:
+			side = subscription.asks
+			otherSide = subscription.bids
+		default:
+			continue
 		}
-		subscription.add(event)
+		if size > 0.0 {
+			side.Put(price, size)
+			otherSide.Remove(price)
+		} else if size == 0.0 {
+			side.Remove(price)
+			otherSide.Remove(price)
+		} else {
+			log.Printf("Warning: negative price change\n")
+			side.Remove(price)
+			otherSide.Remove(price)
+		}
+	}
+	if debugOrderBook {
+		subscription.printOrderBook()
+	}
+}
+
+func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription marketSubscription) {
+	assetID := message.AssetID
+	price, err := stringToFloat(message.Price)
+	if err != nil {
+		log.Printf("Failed to read price: \"%s\"\n", message.Price)
+		return
+	}
+	event := priceEvent{
+		timestamp: time.Now(),
+		price: price,
+	}
+	log.Printf("%s: slug = %s, price = %s, size = %s, side = %s\n", lastTradePriceEvent, subscription.slug, message.Price, message.Size, message.Side)
+	subscription.add(event)
+	if message.Side == sideBuy {
 		triggerID, trigger := subscription.getMatchingTrigger()
 		if triggerID != invalidTriggerID {
 			positions := s.getPositions()
@@ -172,10 +234,10 @@ func (s *tradingSystem) onBookMessage(message BookMessage) {
 				log.Printf("Warning: found matching trigger but there are already %d active positions\n", s.positions)
 				return
 			}
+			log.Printf("Trigger %d activated for %s at %.3f\n", triggerID, subscription.slug, price)
 			_ = postOrder(assetID, model.BUY, *trigger.Size, *trigger.Limit, subscription.negRisk, *configuration.OrderExpiration)
 			subscription.setTriggered(triggerID)
 		}
-		s.subscriptions[assetID] = subscription
 	}
 }
 
@@ -194,9 +256,29 @@ func (s *tradingSystem) getMarket(assetID string) (Market, bool) {
 	}
 }
 
+func (s *tradingSystem) getSubscription(assetID string) (marketSubscription, bool) {
+	subscription, success := s.subscriptions[assetID]
+	if !success {
+		market, exists := s.getMarket(assetID)
+		if !exists {
+			log.Printf("Warning: unable to find matching market for asset ID %s\n", assetID)
+			return marketSubscription{}, false
+		}
+		subscription = marketSubscription{
+			slug: market.Slug,
+			negRisk: market.NegRisk,
+			prices: deque.Deque[priceEvent]{},
+			asks: treemap.NewWith(utils.Float64Comparator),
+			bids: treemap.NewWith(utils.Float64Comparator),
+			triggered: []int{},
+		}
+	}
+	return subscription, true
+}
+
 func (s *marketSubscription) add(event priceEvent) {
 	if event.price <= 0.0 || event.price >= 1.0 {
-		log.Printf("Warning: invalid price for %s: %.4f", s.slug, event.price)
+		log.Printf("Warning: invalid price for %s: %.3f", s.slug, event.price)
 		return
 	}
 	s.prices.PushBack(event)
@@ -219,6 +301,9 @@ func (s *marketSubscription) add(event priceEvent) {
 }
 
 func (s *marketSubscription) getMatchingTrigger() (int, Trigger) {
+	if s.prices.Len() < 2 {
+		return invalidTriggerID, Trigger{}	
+	}
 	for triggerID, trigger := range configuration.Triggers {
 		triggered := contains(s.triggered, triggerID)
 		if triggered {
@@ -237,11 +322,11 @@ func (s *marketSubscription) getMatchingTrigger() (int, Trigger) {
 		}
 		delta := last.price - first.price
 		if delta < *trigger.Delta {
-			// log.Printf("Info: delta too low for trigger %d: delta = %.2f, trigger.Delta = %.2f\n", triggerID, delta, *trigger.Delta)
+			log.Printf("Info: delta from %s too low for trigger %d: delta = %.3f, trigger.Delta = %.2f\n", s.slug, triggerID, delta, *trigger.Delta)
 			continue
 		}
 		if last.price < *trigger.MinPrice || last.price > *trigger.MaxPrice {
-			log.Printf("Info: price outside of range for trigger %d: price = %.3f, trigger.MinPrice = %.2f, trigger.MaxPrice = %.2f\n", triggerID, last.price, *trigger.MinPrice, *trigger.MaxPrice)
+			log.Printf("Info: price of %s outside of range for trigger %d: price = %.3f, trigger.MinPrice = %.2f, trigger.MaxPrice = %.2f\n", s.slug, triggerID, last.price, *trigger.MinPrice, *trigger.MaxPrice)
 			continue
 		}
 		return triggerID, trigger
@@ -268,6 +353,50 @@ func (s *marketSubscription) getFirstPrice(trigger Trigger) (priceEvent, bool) {
 	return priceEvent{}, false
 }
 
+func (s *marketSubscription) printOrderBook() {
+	log.Printf("LOB for %s:\n", s.slug)
+	fmt.Printf("  Asks:\n")
+	printBookSide(s.asks, false)
+	fmt.Printf("  Bids:\n")
+	printBookSide(s.bids, true)
+}
+
+func (s *marketSubscription) validateOrderBook() bool {
+	if s.bids.Size() > 0 && s.asks.Size() > 0 {
+		itBids := s.bids.Iterator()
+		itBids.End()
+		_ = itBids.Prev()
+		highestBid := itBids.Key().(float64)
+		itAsks := s.asks.Iterator()
+		itAsks.Begin()
+		_ = itAsks.Next()
+		lowestAsk := itAsks.Key().(float64)
+		if lowestAsk <= highestBid {
+			log.Printf("Invalid LOB state for %s\n", s.slug)
+			s.printOrderBook()
+			return false
+		} else {
+			return true
+		}
+	} else {
+		return false
+	}
+}
+
+func getPriceSize(priceString string, sizeString string) (float64, float64) {
+	price, err := stringToFloat(priceString)
+	if err != nil {
+		fmt.Printf("Failed to convert price \"%s\" to float", priceString)
+		return invalidFloat64, invalidFloat64
+	}
+	size, err := stringToFloat(sizeString)
+	if err != nil {
+		fmt.Printf("Failed to convert size \"%s\" to float", sizeString)
+		return invalidFloat64, invalidFloat64
+	}
+	return price, size
+}
+
 func getMarkets() ([]Market, error) {
 	markets := []Market{}
 	for _, tagSlug := range configuration.TagSlugs {
@@ -277,17 +406,29 @@ func getMarkets() ([]Market, error) {
 		}
 		for _, event := range events {
 			for _, market := range event.Markets {
-				markets = append(markets, market)
+				if market.Volume24Hr > *configuration.MinVolume {
+					markets = append(markets, market)
+				}
 			}
 		}
-		slices.SortFunc(markets, func (a, b Market) int {
+	}
+	slices.SortFunc(markets, func (a, b Market) int {
 			return cmp.Compare(b.Volume24Hr, a.Volume24Hr)
-		})
-		if len(markets) > marketChannelLimit {
-			markets = markets[:marketChannelLimit]
-		}
+	})
+	if len(markets) > marketChannelLimit {
+		markets = markets[:marketChannelLimit]
 	}
 	return markets, nil
+}
+
+func printMarketStats(markets []Market) {
+	if len(markets) < 2 {
+		log.Printf("Warning: not enough markets to analyze volume")
+		return
+	}
+	first := markets[0]
+	last := markets[len(markets) - 1]
+	log.Printf("Market 24h volume range: %.2f - %.2f\n", last.Volume24Hr, first.Volume24Hr)
 }
 
 func getAssetIDs(markets []Market) []string {
@@ -322,4 +463,36 @@ func getYesTokenID(market Market) (string, bool) {
 	}
 	yesTokenID := tokenIDs[0]
 	return yesTokenID, true
+}
+
+func putPriceLevels(destination *treemap.Map, source []OrderSummary) {
+	destination.Clear()
+	for _, summary := range source {
+		price, size := getPriceSize(summary.Price, summary.Size)
+		if price == invalidFloat64 {
+			continue
+		}
+		destination.Put(price, size)
+	}
+}
+
+func printBookSide(book *treemap.Map, bids bool) {
+	if book.Size() > 0 {
+		it := book.Iterator()
+		it.End()
+		offset := 0
+		for it.Prev() {
+			bidsMatch := bids && offset < bookSidePrintLimit
+			asksMatch := !bids && book.Size() - offset <= bookSidePrintLimit
+			if bidsMatch || asksMatch {
+				price := it.Key().(float64)
+				size := it.Value().(float64)
+				fmt.Printf("    [%.3f] %.2f\n", price, size)
+			}
+			offset++
+		}
+		it = book.Iterator()
+	} else {
+		fmt.Print("    -\n")
+	}
 }

@@ -61,7 +61,7 @@ func subscribeToMarkets(assetIDs []string, callback func ([]BookMessage)) error 
 			return fmt.Errorf("Failed to deserialize book message: %v\n", err)
 		}
 		if len(bookMessages) > 1 {
-			fmt.Printf("Received %d book messages\n", len(bookMessages))
+			log.Printf("Received %d book messages\n", len(bookMessages))
 		}
 		callback(bookMessages)
 	}
