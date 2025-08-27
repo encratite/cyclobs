@@ -63,7 +63,7 @@ type OrderResponse struct {
 	Success bool `json:"success"`
 }
 
-func postOrder(tokenID string, side model.Side, size int, limit float64, negRisk bool, expiration int) error {
+func postOrder(slug, tokenID string, side model.Side, size int, limit float64, negRisk bool, expiration int) error {
 	if len(tokenID) < 20 {
 		log.Fatalf("Invalid tokenID")
 	}
@@ -86,6 +86,7 @@ func postOrder(tokenID string, side model.Side, size int, limit float64, negRisk
 		return nil
 	}
 	limit = float64(int(limit * centsPerDollar)) / float64(centsPerDollar)
+	log.Printf("Posting order: slug = %s, tokenID = %s, side = %d, size = %d, limit = %.3f, negRisk = %t, expiration = %d\n", slug, tokenID, side, size, limit, negRisk, expiration)
 	bigChainId := big.NewInt(chainId)
 	orderBuilder := builder.NewExchangeOrderBuilderImpl(bigChainId, nil)
 	makerAmount := int64(float64(size) * limit * centsPerDollar) * ticksPerCent

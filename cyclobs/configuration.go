@@ -39,7 +39,9 @@ type Trigger struct {
 	Delta *float64 `yaml:"delta"`
 	MinPrice *float64 `yaml:"minPrice"`
 	MaxPrice *float64 `yaml:"maxPrice"`
-	Limit *float64 `yaml:"limit"`
+	LiquidityRange *float64 `yaml:"liquidityRange"`
+	MinLiquidity *float64 `yaml:"minLiquidity"`
+	LimitOffset *float64 `yaml:"limitOffset"`
 	Size *int `yaml:"size"`
 }
 
@@ -99,14 +101,23 @@ func (t *Trigger) validate() {
 	if t.Delta == nil || *t.Delta < 0.01 || *t.Delta > 0.9 {
 		log.Fatalf("Invalid delta in trigger configuration")
 	}
-	if t.MinPrice == nil || *t.MinPrice < 0.0 {
+	if t.MinPrice == nil || *t.MinPrice < 0.0 || *t.MinPrice > 1.0 {
 		log.Fatalf("Invalid min price in trigger configuration")
 	}
-	if t.MaxPrice == nil || *t.MaxPrice > 1.0 {
+	if t.MaxPrice == nil || *t.MinPrice < 0.0 || *t.MaxPrice > 1.0 {
 		log.Fatalf("Invalid max price in trigger configuration")
 	}
-	if t.Limit == nil || *t.Limit < 0.01 || *t.Limit > 0.99 {
-		log.Fatalf("Invalid limit in trigger configuration")
+	if *t.MinPrice >= *t.MaxPrice {
+		log.Fatalf("Min price must not exceed max price")
+	}
+	if t.LiquidityRange == nil || *t.LiquidityRange < 0.05 || *t.LiquidityRange > 0.2 {
+		log.Fatalf("Invalid liquidity range in trigger configuration")
+	}
+	if t.MinLiquidity == nil || *t.MinLiquidity < 100.0 || *t.MinLiquidity > 100000.0 {
+		log.Fatalf("Invalid min liquidity in trigger configuration")
+	}
+	if t.LimitOffset == nil || *t.LimitOffset < 0.01 || *t.LimitOffset > 0.99 {
+		log.Fatalf("Invalid limit offset in trigger configuration")
 	}
 	if t.Size == nil || *t.Size < 5 || *t.Size > 1000 {
 		log.Fatalf("Invalid position size in trigger configuration")

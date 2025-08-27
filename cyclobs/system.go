@@ -132,7 +132,7 @@ func (s *tradingSystem) runCleaner() {
 			size := int(position.Size)
 			limit := max(position.CurPrice - *cleanerConfig.Tolerance, 0.05)
 			orderExpiration := *cleanerConfig.Interval
-			postOrder(position.Asset, model.SELL, size, limit, position.NegativeRisk, orderExpiration)
+			postOrder(position.Slug, position.Asset, model.SELL, size, limit, position.NegativeRisk, orderExpiration)
 		}
 		sleep()
 	}
@@ -235,7 +235,8 @@ func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription marke
 				return
 			}
 			log.Printf("Trigger %d activated for %s at %.3f\n", triggerID, subscription.slug, price)
-			_ = postOrder(assetID, model.BUY, *trigger.Size, *trigger.Limit, subscription.negRisk, *configuration.OrderExpiration)
+			orderPrice := price + *trigger.LimitOffset
+			_ = postOrder(subscription.slug, assetID, model.BUY, *trigger.Size, orderPrice, subscription.negRisk, *configuration.OrderExpiration)
 			subscription.setTriggered(triggerID)
 		}
 	}
@@ -326,12 +327,49 @@ func (s *marketSubscription) getMatchingTrigger() (int, Trigger) {
 			continue
 		}
 		if last.price < *trigger.MinPrice || last.price > *trigger.MaxPrice {
-			log.Printf("Info: price of %s outside of range for trigger %d: price = %.3f, trigger.MinPrice = %.2f, trigger.MaxPrice = %.2f\n", s.slug, triggerID, last.price, *trigger.MinPrice, *trigger.MaxPrice)
+			format := "Info: price of %s outside of range for trigger %d: price = %.3f, trigger.MinPrice = %.2f, trigger.MaxPrice = %.2f\n"
+			log.Printf(format, s.slug, triggerID, last.price, *trigger.MinPrice, *trigger.MaxPrice)
 			continue
+		}
+		bidLiquidity, askLiquidity := s.getLiquidity(last.price, *trigger.LiquidityRange)
+		if bidLiquidity < *trigger.MinLiquidity || askLiquidity < *trigger.MinLiquidity {
+			format := "Info: liquidity requirements for %s were not met: bidLiquidity = %.2f, askLiquidity = %.2f, trigger.MinLiquidity = %.2f\n"
+			log.Printf(format, s.slug, bidLiquidity, askLiquidity, *trigger.MinLiquidity)
+		}
+		valid := s.validateOrderBook()
+		if !valid {
+			return invalidTriggerID, Trigger{}
 		}
 		return triggerID, trigger
 	}
 	return invalidTriggerID, Trigger{}
+}
+
+func (s *marketSubscription) getLiquidity(lastTradePrice, liquidityRange float64) (float64, float64) {
+	bidLiquidity := 0.0
+	itBids := s.bids.Iterator()
+	itBids.End()
+	for itBids.Prev() {
+		priceLevel := itBids.Key().(float64)
+		size := itBids.Key().(float64)
+		priceLevelDelta := lastTradePrice - priceLevel
+		if priceLevelDelta > liquidityRange {
+			break
+		}
+		bidLiquidity += priceLevel * size
+	}
+	askLiquidity := 0.0
+	itAsks := s.asks.Iterator()
+	for itAsks.Next() {
+		priceLevel := itBids.Key().(float64)
+		size := itBids.Key().(float64)
+		priceLevelDelta := priceLevel - lastTradePrice
+		if priceLevelDelta > liquidityRange {
+			break
+		}
+		askLiquidity += priceLevel * size
+	}
+	return bidLiquidity, askLiquidity
 }
 
 func (s *marketSubscription) setTriggered(triggerID int) {
@@ -372,7 +410,7 @@ func (s *marketSubscription) validateOrderBook() bool {
 		_ = itAsks.Next()
 		lowestAsk := itAsks.Key().(float64)
 		if lowestAsk <= highestBid {
-			log.Printf("Invalid LOB state for %s\n", s.slug)
+			log.Printf("Warning: invalid LOB state for %s\n", s.slug)
 			s.printOrderBook()
 			return false
 		} else {
