@@ -74,13 +74,14 @@ func (s *tradingSystem) run() {
 	}
 	defer s.database.close()
 	for {
-		markets, err := getMarkets()
+		markets, eventSlugMap, err := getMarkets()
 		if err != nil {
 			sleep()
 		}
 		printMarketStats(markets)
 		s.markets = markets
 		assetIDs := getAssetIDs(markets)
+		s.database.insertMarkets(markets, assetIDs, eventSlugMap)
 		err = subscribeToMarkets(assetIDs, func (messages []BookMessage) {
 			for _, message := range messages {
 				s.onBookMessage(message)
@@ -449,15 +450,22 @@ func getPriceSize(priceString string, sizeString string) (decimal.Decimal, decim
 	return price, size, nil
 }
 
-func getMarkets() ([]Market, error) {
+func getMarkets() ([]Market, map[string]string, error) {
 	markets := []Market{}
+	eventSlugMap := map[string]string{}
 	for _, tagSlug := range configuration.TagSlugs {
 		events, err := getEvents(tagSlug)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, event := range events {
+			if !event.Active || event.Closed {
+				continue
+			}
 			for _, market := range event.Markets {
+				if !market.Active || market.Closed {
+					continue
+				}
 				volume := decimal.NewFromFloat(market.Volume24Hr)
 				if volume.LessThan(configuration.MinVolume.Decimal) {
 					continue
@@ -468,6 +476,7 @@ func getMarkets() ([]Market, error) {
 				if exists {
 					continue
 				}
+				eventSlugMap[market.Slug] = event.Slug
 				markets = append(markets, market)
 			}
 		}
@@ -478,7 +487,7 @@ func getMarkets() ([]Market, error) {
 	if len(markets) > marketChannelLimit {
 		markets = markets[:marketChannelLimit]
 	}
-	return markets, nil
+	return markets, eventSlugMap, nil
 }
 
 func printMarketStats(markets []Market) {

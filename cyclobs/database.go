@@ -18,17 +18,35 @@ const (
 	databaseTimeout = 5
 	millisecondsPerSecond = 1000
 	databaseBookDepth = 10
-	bookEventCollection = "book"
-	priceChangeCollection = "price_change"
-	lastTradePriceCollection = "last_trade_price"
+	marketCollection = "markets"
+	marketVolumeCollection = "market_volume"
+	bookEventCollection = "book_events"
+	priceChangeCollection = "price_changes"
+	lastTradePriceCollection = "last_trade_prices"
 )
 
 type databaseClient struct {
 	client *mongo.Client
 	database *mongo.Database
-	bookEvent *mongo.Collection
-	priceChange *mongo.Collection
-	lastTradePrice *mongo.Collection
+	markets *mongo.Collection
+	marketVolume *mongo.Collection
+	bookEvents *mongo.Collection
+	priceChanges *mongo.Collection
+	lastTradePrices *mongo.Collection
+}
+
+type MarketBSON struct {
+	Slug string `bson:"slug"`
+	Event string `bson:"event"`
+	AssetID string `bson:"asset_id"`
+	NegRisk bool `bson:"neg_risk"`
+	Added time.Time `bson:"added"`
+}
+
+type MarketVolume struct {
+	Slug string `bson:"slug"`
+	Timestamp time.Time `bson:"timestamp"`
+	Volume float64 `bson:"volume"`
 }
 
 type BookEvent struct {
@@ -65,27 +83,59 @@ type PriceLevel struct {
 }
 
 func newDatabaseClient() databaseClient {
-	options := options.Client().ApplyURI(*configuration.Database.URI)
-	client, err := mongo.Connect(options)
+	clientOptions := options.Client().ApplyURI(*configuration.Database.URI)
+	client, err := mongo.Connect(clientOptions)
 	if err != nil {
 		log.Fatal(err)
 	}
 	database := client.Database(*configuration.Database.Database)
-	bookEvent := database.Collection(bookEventCollection)
-	priceChange := database.Collection(priceChangeCollection)
-	lastTradePrice := database.Collection(lastTradePriceCollection)
+	markets := database.Collection(marketCollection)
+	marketVolume := database.Collection(marketVolumeCollection)
+	bookEvents := database.Collection(bookEventCollection)
+	priceChanges := database.Collection(priceChangeCollection)
+	lastTradePrices := database.Collection(lastTradePriceCollection)
 	dbClient := databaseClient{
 		client: client,
 		database: database,
-		bookEvent: bookEvent,
-		priceChange: priceChange,
-		lastTradePrice: lastTradePrice,
+		markets: markets,
+		marketVolume: marketVolume,
+		bookEvents: bookEvents,
+		priceChanges: priceChanges,
+		lastTradePrices: lastTradePrices,
 	}
 	dbClient.createIndexes()
 	return dbClient
 }
 
-func (c *databaseClient) createIndexes() {
+func (c *databaseClient) createIndexes() {	
+	c.createMarketIndexes()
+	c.createChannelIndexes()
+}
+
+func (c *databaseClient) createMarketIndexes() {
+	slugKey := bson.D{
+		{Key: "slug", Value: 1},
+	}
+	marketSlugIndex := mongo.IndexModel{
+		Keys: slugKey,
+		Options: options.Index().SetUnique(true),
+	}
+	createIndex(c.markets, marketSlugIndex)
+	assetKey := bson.D{
+		{Key: "asset_id", Value: 1},
+	}
+	marketAssetIndex := mongo.IndexModel{
+		Keys: assetKey,
+		Options: options.Index().SetUnique(true),
+	}
+	createIndex(c.markets, marketAssetIndex)
+	marketVolumeIndex := mongo.IndexModel{
+		Keys: slugKey,
+	}
+	createIndex(c.marketVolume, marketVolumeIndex)
+}
+
+func (c *databaseClient) createChannelIndexes() {
 	keys := bson.D{
 		{Key: "asset_id", Value: 1},
 		{Key: "server_time", Value: 1},
@@ -94,17 +144,12 @@ func (c *databaseClient) createIndexes() {
 		Keys: keys,
 	}
 	collections := []*mongo.Collection{
-		c.bookEvent,
-		c.priceChange,
-		c.lastTradePrice,
+		c.bookEvents,
+		c.priceChanges,
+		c.lastTradePrices,
 	}
 	for _, collection := range collections {
-		ctx, cancel := getDatabaseContext()
-		defer cancel()
-		_, err := collection.Indexes().CreateOne(ctx, indexModel)
-		if err != nil {
-			log.Fatalf("Failed to create index: %v", err)
-		}
+		createIndex(collection, indexModel)
 	}
 }
 
@@ -112,6 +157,42 @@ func (c *databaseClient) close() {
 	ctx, cancel := getDatabaseContext()
 	defer cancel()
 	c.client.Disconnect(ctx)
+}
+
+func (c *databaseClient) insertMarkets(markets []Market, assetIDs []string, eventSlugMap map[string]string) {
+	dbMarkets := []MarketBSON{}
+	dbVolume := []MarketVolume{}
+	now := time.Now()
+	for i, market := range markets {
+		event, exists := eventSlugMap[market.Slug]
+		if !exists {
+			log.Printf("Warning: unable to determine event slug for market %s\n", market.Slug)
+			continue
+		}
+		assetID := assetIDs[i]
+		dbMarket := MarketBSON{
+			Slug: market.Slug,
+			Event: event,
+			AssetID: assetID,
+			NegRisk: market.NegRisk,
+			Added: now,
+		}
+		dbMarkets = append(dbMarkets, dbMarket)
+		volume := MarketVolume{
+			Slug: market.Slug,
+			Timestamp: now,
+			Volume: market.Volume24Hr,
+		}
+		dbVolume = append(dbVolume, volume)
+	}
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	ordered := options.InsertMany().SetOrdered(false)
+	c.markets.InsertMany(ctx, dbMarkets, ordered)
+	_, err := c.marketVolume.InsertMany(ctx, dbVolume)
+	if err != nil {
+		log.Printf("Failed to insert volume data: %v\n", err)
+	}
 }
 
 func (c *databaseClient) insertBookMessage(message BookMessage, subscription marketSubscription) {
@@ -148,7 +229,7 @@ func (c *databaseClient) insertBookEvent(message BookMessage) {
 	}
 	ctx, cancel := getDatabaseContext()
 	defer cancel()
-	_, insertErr := c.bookEvent.InsertOne(ctx, bookEvent)
+	_, insertErr := c.bookEvents.InsertOne(ctx, bookEvent)
 	if insertErr != nil {
 		log.Printf("Warning: failed to insert book event into database: %v\n", err)
 	}
@@ -182,7 +263,7 @@ func (c *databaseClient) insertPriceChange(message BookMessage) {
 	}
 	ctx, cancel := getDatabaseContext()
 	defer cancel()
-	_, insertErr := c.priceChange.InsertMany(ctx, priceChanges)
+	_, insertErr := c.priceChanges.InsertMany(ctx, priceChanges)
 	if insertErr != nil {
 		log.Printf("Warning: failed to insert price change into database: %v\n", insertErr)
 	}
@@ -216,7 +297,7 @@ func (c *databaseClient) insertLastTradePrice(message BookMessage, subscription 
 	}
 	ctx, cancel := getDatabaseContext()
 	defer cancel()
-	_, insertErr := c.lastTradePrice.InsertOne(ctx, lastTradePrice)
+	_, insertErr := c.lastTradePrices.InsertOne(ctx, lastTradePrice)
 	if insertErr != nil {
 		log.Printf("Warning: failed to last trade price into database: %v\n", err)
 	}
@@ -305,4 +386,13 @@ func getPriceLevels(book *treemap.Map, bids bool) []PriceLevel {
 func getDatabaseContext() (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), databaseTimeout * time.Second)
 	return ctx, cancel
+}
+
+func createIndex(collection *mongo.Collection, indexModel mongo.IndexModel) {
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	_, err := collection.Indexes().CreateOne(ctx, indexModel)
+	if err != nil {
+		log.Fatalf("Failed to create index: %v", err)
+	}
 }
