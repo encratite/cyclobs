@@ -74,12 +74,37 @@ func newDatabaseClient() databaseClient {
 	bookEvent := database.Collection(bookEventCollection)
 	priceChange := database.Collection(priceChangeCollection)
 	lastTradePrice := database.Collection(lastTradePriceCollection)
-	return databaseClient{
+	dbClient := databaseClient{
 		client: client,
 		database: database,
 		bookEvent: bookEvent,
 		priceChange: priceChange,
 		lastTradePrice: lastTradePrice,
+	}
+	dbClient.createIndexes()
+	return dbClient
+}
+
+func (c *databaseClient) createIndexes() {
+	keys := bson.D{
+		{Key: "asset_id", Value: 1},
+		{Key: "server_time", Value: 1},
+	}
+	indexModel := mongo.IndexModel{
+		Keys: keys,
+	}
+	collections := []*mongo.Collection{
+		c.bookEvent,
+		c.priceChange,
+		c.lastTradePrice,
+	}
+	for _, collection := range collections {
+		ctx, cancel := getDatabaseContext()
+		defer cancel()
+		_, err := collection.Indexes().CreateOne(ctx, indexModel)
+		if err != nil {
+			log.Fatalf("Failed to create index: %v", err)
+		}
 	}
 }
 
