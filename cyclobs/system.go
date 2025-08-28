@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/emirpasic/gods/maps/treemap"
-	"github.com/emirpasic/gods/utils"
 	"github.com/gammazero/deque"
+	"github.com/shopspring/decimal"
 	"github.com/polymarket/go-order-utils/pkg/model"
 )
 
@@ -22,7 +22,6 @@ const (
 	priceChangeEvent = "price_change"
 	lastTradePriceEvent = "last_trade_price"
 	invalidTriggerID = -1
-	invalidFloat64 = -1.0
 	debugPriceChange = false
 	debugOrderBook = false
 	bookSidePrintLimit = 5
@@ -47,7 +46,7 @@ type marketSubscription struct {
 
 type priceEvent struct {
 	timestamp time.Time
-	price float64
+	price decimal.Decimal
 }
 
 type positionState struct {
@@ -134,7 +133,12 @@ func (s *tradingSystem) runCleaner() {
 			}
 			log.Printf("Position %s has expired, closing it\n", position.Slug)
 			size := int(position.Size)
-			limit := max(position.CurPrice - *cleanerConfig.Tolerance, 0.05)
+			decimalPrice := decimal.NewFromFloat(position.CurPrice)
+			limit := decimalPrice.Sub(cleanerConfig.LimitOffset.Decimal)
+			limitMin := decimalConstant("0.05")
+			if limit.LessThan(limitMin) {
+				limit = limitMin
+			}
 			orderExpiration := *cleanerConfig.Interval
 			postOrder(position.Slug, position.Asset, model.SELL, size, limit, position.NegativeRisk, orderExpiration)
 		}
@@ -186,8 +190,8 @@ func (s *tradingSystem) onPriceChange(message BookMessage, subscription marketSu
 		if debugPriceChange {
 			log.Printf("%s[%d]: slug = %s, price = %s, size = %s, side = %s\n", priceChangeEvent, i, subscription.slug, change.Price, change.Size, change.Side)
 		}
-		price, size := getPriceSize(change.Price, change.Size)
-		if price == invalidFloat64 {
+		price, size, err := getPriceSize(change.Price, change.Size)
+		if err != nil {
 			continue
 		}
 		var side, otherSide *treemap.Map
@@ -201,10 +205,10 @@ func (s *tradingSystem) onPriceChange(message BookMessage, subscription marketSu
 		default:
 			continue
 		}
-		if size > 0.0 {
+		if size.IsPositive() {
 			side.Put(price, size)
 			otherSide.Remove(price)
-		} else if size == 0.0 {
+		} else if size.IsZero() {
 			side.Remove(price)
 			otherSide.Remove(price)
 		} else {
@@ -220,7 +224,7 @@ func (s *tradingSystem) onPriceChange(message BookMessage, subscription marketSu
 
 func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription marketSubscription) {
 	assetID := message.AssetID
-	price, err := stringToFloat(message.Price)
+	price, err := decimal.NewFromString(message.Price)
 	if err != nil {
 		log.Printf("Failed to read price: \"%s\"\n", message.Price)
 		return
@@ -239,8 +243,8 @@ func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription marke
 				log.Printf("Warning: found matching trigger but there are already %d active positions\n", s.positions)
 				return
 			}
-			log.Printf("Trigger %d activated for %s at %.3f\n", triggerID, subscription.slug, price)
-			orderPrice := price + *trigger.LimitOffset
+			log.Printf("Trigger %d activated for %s at %s\n", triggerID, subscription.slug, price)
+			orderPrice := price.Add(trigger.LimitOffset.Decimal)
 			_ = postOrder(subscription.slug, assetID, model.BUY, *trigger.Size, orderPrice, subscription.negRisk, *configuration.OrderExpiration)
 			subscription.setTriggered(triggerID)
 		}
@@ -274,8 +278,8 @@ func (s *tradingSystem) getSubscription(assetID string) (marketSubscription, boo
 			slug: market.Slug,
 			negRisk: market.NegRisk,
 			prices: deque.Deque[priceEvent]{},
-			asks: treemap.NewWith(utils.Float64Comparator),
-			bids: treemap.NewWith(utils.Float64Comparator),
+			asks: treemap.NewWith(decimalComparator),
+			bids: treemap.NewWith(decimalComparator),
 			triggered: []int{},
 		}
 	}
@@ -283,8 +287,10 @@ func (s *tradingSystem) getSubscription(assetID string) (marketSubscription, boo
 }
 
 func (s *marketSubscription) add(event priceEvent) {
-	if event.price <= 0.0 || event.price >= 1.0 {
-		log.Printf("Warning: invalid price for %s: %.3f", s.slug, event.price)
+	priceMin := decimal.Zero
+	priceMax := decimalConstant("1.0")
+	if event.price.LessThanOrEqual(priceMin) || event.price.GreaterThanOrEqual(priceMax) {
+		log.Printf("Warning: invalid price for %s: %s", s.slug, event.price)
 		return
 	}
 	s.prices.PushBack(event)
@@ -326,19 +332,19 @@ func (s *marketSubscription) getMatchingTrigger() (int, Trigger) {
 			log.Printf("Warning: inconsistent timestamps in price data for %s\n", s.slug)
 			return invalidTriggerID, Trigger{}
 		}
-		delta := last.price - first.price
-		if delta < *trigger.Delta {
-			log.Printf("Info: delta from %s too low for trigger %d: delta = %.3f, trigger.Delta = %.2f\n", s.slug, triggerID, delta, *trigger.Delta)
+		delta := last.price.Sub(first.price)
+		if delta.LessThan(trigger.Delta.Decimal) {
+			log.Printf("Info: delta from %s too low for trigger %d: delta = %s, trigger.Delta = %s\n", s.slug, triggerID, delta, *trigger.Delta)
 			continue
 		}
-		if last.price < *trigger.MinPrice || last.price > *trigger.MaxPrice {
-			format := "Info: price of %s outside of range for trigger %d: price = %.3f, trigger.MinPrice = %.2f, trigger.MaxPrice = %.2f\n"
+		if last.price.LessThan(trigger.MinPrice.Decimal) || last.price.GreaterThan(trigger.MaxPrice.Decimal) {
+			format := "Info: price of %s outside of range for trigger %d: price = %s, trigger.MinPrice = %s, trigger.MaxPrice = %s\n"
 			log.Printf(format, s.slug, triggerID, last.price, *trigger.MinPrice, *trigger.MaxPrice)
 			continue
 		}
-		bidLiquidity, askLiquidity := s.getLiquidity(last.price, *trigger.LiquidityRange)
-		if bidLiquidity < *trigger.MinLiquidity || askLiquidity < *trigger.MinLiquidity {
-			format := "Info: liquidity requirements for %s were not met: bidLiquidity = %.2f, askLiquidity = %.2f, trigger.MinLiquidity = %.2f\n"
+		bidLiquidity, askLiquidity := s.getLiquidity(last.price, trigger.LiquidityRange.Decimal)
+		if bidLiquidity.LessThan(trigger.MinLiquidity.Decimal) || askLiquidity.LessThan(trigger.MinLiquidity.Decimal) {
+			format := "Info: liquidity requirements for %s were not met: bidLiquidity = %s, askLiquidity = %s, trigger.MinLiquidity = %s\n"
 			log.Printf(format, s.slug, bidLiquidity, askLiquidity, *trigger.MinLiquidity)
 		}
 		valid := s.validateOrderBook()
@@ -350,29 +356,29 @@ func (s *marketSubscription) getMatchingTrigger() (int, Trigger) {
 	return invalidTriggerID, Trigger{}
 }
 
-func (s *marketSubscription) getLiquidity(lastTradePrice, liquidityRange float64) (float64, float64) {
-	bidLiquidity := 0.0
+func (s *marketSubscription) getLiquidity(lastTradePrice, liquidityRange decimal.Decimal) (decimal.Decimal, decimal.Decimal) {
+	bidLiquidity := decimal.Zero
 	itBids := s.bids.Iterator()
 	itBids.End()
 	for itBids.Prev() {
-		priceLevel := itBids.Key().(float64)
-		size := itBids.Key().(float64)
-		priceLevelDelta := lastTradePrice - priceLevel
-		if priceLevelDelta > liquidityRange {
+		priceLevel := itBids.Key().(decimal.Decimal)
+		size := itBids.Key().(decimal.Decimal)
+		priceLevelDelta := lastTradePrice.Sub(priceLevel)
+		if priceLevelDelta.GreaterThan(liquidityRange) {
 			break
 		}
-		bidLiquidity += priceLevel * size
+		bidLiquidity = bidLiquidity.Add(priceLevel.Mul(size))
 	}
-	askLiquidity := 0.0
+	askLiquidity := decimal.Zero
 	itAsks := s.asks.Iterator()
 	for itAsks.Next() {
-		priceLevel := itBids.Key().(float64)
-		size := itBids.Key().(float64)
-		priceLevelDelta := priceLevel - lastTradePrice
-		if priceLevelDelta > liquidityRange {
+		priceLevel := itBids.Key().(decimal.Decimal)
+		size := itBids.Key().(decimal.Decimal)
+		priceLevelDelta := priceLevel.Sub(lastTradePrice)
+		if priceLevelDelta.GreaterThan(liquidityRange) {
 			break
 		}
-		askLiquidity += priceLevel * size
+		askLiquidity = askLiquidity.Add(priceLevel.Mul(size))
 	}
 	return bidLiquidity, askLiquidity
 }
@@ -426,18 +432,18 @@ func (s *marketSubscription) validateOrderBook() bool {
 	}
 }
 
-func getPriceSize(priceString string, sizeString string) (float64, float64) {
-	price, err := stringToFloat(priceString)
+func getPriceSize(priceString string, sizeString string) (decimal.Decimal, decimal.Decimal, error) {
+	price, err := decimal.NewFromString(priceString)
 	if err != nil {
-		fmt.Printf("Failed to convert price \"%s\" to float", priceString)
-		return invalidFloat64, invalidFloat64
+		fmt.Printf("Failed to convert price \"%s\" to decimal", priceString)
+		return decimal.Zero, decimal.Zero, err
 	}
-	size, err := stringToFloat(sizeString)
+	size, err := decimal.NewFromString(sizeString)
 	if err != nil {
-		fmt.Printf("Failed to convert size \"%s\" to float", sizeString)
-		return invalidFloat64, invalidFloat64
+		fmt.Printf("Failed to convert size \"%s\" to decimal", sizeString)
+		return decimal.Zero, decimal.Zero, err
 	}
-	return price, size
+	return price, size, nil
 }
 
 func getMarkets() ([]Market, error) {
@@ -449,7 +455,8 @@ func getMarkets() ([]Market, error) {
 		}
 		for _, event := range events {
 			for _, market := range event.Markets {
-				if market.Volume24Hr > *configuration.MinVolume {
+				volume := decimal.NewFromFloat(market.Volume24Hr)
+				if volume.GreaterThan(configuration.MinVolume.Decimal) {
 					markets = append(markets, market)
 				}
 			}
@@ -511,8 +518,8 @@ func getYesTokenID(market Market) (string, bool) {
 func putPriceLevels(destination *treemap.Map, source []OrderSummary) {
 	destination.Clear()
 	for _, summary := range source {
-		price, size := getPriceSize(summary.Price, summary.Size)
-		if price == invalidFloat64 {
+		price, size, err := getPriceSize(summary.Price, summary.Size)
+		if err != nil {
 			continue
 		}
 		destination.Put(price, size)
@@ -528,9 +535,9 @@ func printBookSide(book *treemap.Map, bids bool) {
 			bidsMatch := bids && offset < bookSidePrintLimit
 			asksMatch := !bids && book.Size() - offset <= bookSidePrintLimit
 			if bidsMatch || asksMatch {
-				price := it.Key().(float64)
-				size := it.Value().(float64)
-				fmt.Printf("    [%.3f] %.2f\n", price, size)
+				price := it.Key().(decimal.Decimal)
+				size := it.Value().(decimal.Decimal)
+				fmt.Printf("    [%s] %s\n", price, size)
 			}
 			offset++
 		}
@@ -538,4 +545,10 @@ func printBookSide(book *treemap.Map, bids bool) {
 	} else {
 		fmt.Print("    -\n")
 	}
+}
+
+func decimalComparator(a, b any) int {
+	decimal1 := a.(decimal.Decimal)
+	decimal2 := b.(decimal.Decimal)
+	return decimal1.Cmp(decimal2)
 }

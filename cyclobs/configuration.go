@@ -3,6 +3,7 @@ package cyclobs
 import (
 	"log"
 
+	"github.com/shopspring/decimal"
 	"gopkg.in/yaml.v3"
 )
 
@@ -12,7 +13,7 @@ type Configuration struct {
 	Credentials Credentials `yaml:"credentials"`
 	Live *bool `yaml:"live"`
 	TagSlugs []string `yaml:"tagSlugs"`
-	MinVolume *float64 `yaml:"minVolume"`
+	MinVolume *SerializableDecimal `yaml:"minVolume"`
 	OrderExpiration *int `yaml:"orderExpiration"`
 	PositionLimit *int `yaml:"positionLimit"`
 	Cleaner CleanerConfiguration `yaml:"cleaner"`
@@ -32,23 +33,27 @@ type Credentials struct {
 type CleanerConfiguration struct {
 	Interval *int `yaml:"interval"`
 	Expiration *int `yaml:"expiration"`
-	Tolerance *float64 `yaml:"tolerance"`
+	LimitOffset *SerializableDecimal `yaml:"limitOffset"`
 }
 
 type Trigger struct {
 	TimeSpan *int `yaml:"timeSpan"`
-	Delta *float64 `yaml:"delta"`
-	MinPrice *float64 `yaml:"minPrice"`
-	MaxPrice *float64 `yaml:"maxPrice"`
-	LiquidityRange *float64 `yaml:"liquidityRange"`
-	MinLiquidity *float64 `yaml:"minLiquidity"`
-	LimitOffset *float64 `yaml:"limitOffset"`
+	Delta *SerializableDecimal `yaml:"delta"`
+	MinPrice *SerializableDecimal `yaml:"minPrice"`
+	MaxPrice *SerializableDecimal `yaml:"maxPrice"`
+	LiquidityRange *SerializableDecimal `yaml:"liquidityRange"`
+	MinLiquidity *SerializableDecimal `yaml:"minLiquidity"`
+	LimitOffset *SerializableDecimal `yaml:"limitOffset"`
 	Size *int `yaml:"size"`
 }
 
 type DatabaseConfiguration struct {
 	URI *string `yaml:"uri"`
 	Database *string `yaml:"database"`
+}
+
+type SerializableDecimal struct {
+	decimal.Decimal
 }
 
 var configuration *Configuration
@@ -73,7 +78,8 @@ func (c *Configuration) validate() {
 	if c.TagSlugs == nil {
 		log.Fatalf("Tag slugs missing from configuration")
 	}
-	if c.MinVolume == nil || *c.MinVolume < 1000 {
+	minVolumeMin := decimal.NewFromInt(1000)
+	if c.MinVolume == nil || c.MinVolume.LessThan(minVolumeMin) {
 		log.Fatalf("Invalid min volume in configuration")
 	}
 	if c.OrderExpiration == nil || *c.OrderExpiration < 60 {
@@ -96,7 +102,9 @@ func (c *CleanerConfiguration) validate() {
 	if c.Expiration == nil || *c.Expiration < 60 {
 		log.Fatalf("Invalid expiration in cleaner configuration")
 	}
-	if c.Tolerance == nil || *c.Tolerance < 0.01 || *c.Tolerance > 0.2 {
+	toleranceMin := decimalConstant("0.01")
+	toleranceMax := decimalConstant("0.2")
+	if c.LimitOffset == nil || c.LimitOffset.LessThan(toleranceMin) || c.LimitOffset.GreaterThan(toleranceMax) {
 		log.Fatalf("Invalid tolerance in cleaner configuration")
 	}
 }
@@ -105,25 +113,35 @@ func (t *Trigger) validate() {
 	if t.TimeSpan == nil || *t.TimeSpan < 60 {
 		log.Fatalf("Invalid time span in trigger configuration")
 	}
-	if t.Delta == nil || *t.Delta < 0.01 || *t.Delta > 0.9 {
+	deltaMin := decimalConstant("0.01")
+	deltaMax := decimalConstant("0.9")
+	if t.Delta == nil || t.Delta.LessThan(deltaMin) || t.Delta.GreaterThan(deltaMax) {
 		log.Fatalf("Invalid delta in trigger configuration")
 	}
-	if t.MinPrice == nil || *t.MinPrice < 0.0 || *t.MinPrice > 1.0 {
+	priceMin := decimalConstant("0.0")
+	priceMax := decimalConstant("1.0")
+	if t.MinPrice == nil || t.MinPrice.LessThan(priceMin) || t.MinPrice.GreaterThan(priceMax) {
 		log.Fatalf("Invalid min price in trigger configuration")
 	}
-	if t.MaxPrice == nil || *t.MinPrice < 0.0 || *t.MaxPrice > 1.0 {
+	if t.MaxPrice == nil || t.MaxPrice.LessThan(priceMin) || t.MaxPrice.GreaterThan(priceMax) {
 		log.Fatalf("Invalid max price in trigger configuration")
 	}
-	if *t.MinPrice >= *t.MaxPrice {
-		log.Fatalf("Min price must not exceed max price")
+	if t.MinPrice.GreaterThanOrEqual(t.MaxPrice.Decimal) {
+		log.Fatalf("Min price must be less than max price")
 	}
-	if t.LiquidityRange == nil || *t.LiquidityRange < 0.05 || *t.LiquidityRange > 0.2 {
+	liquidityRangeMin := decimalConstant("0.05")
+	liquidityRangeMax := decimalConstant("0.2")
+	if t.LiquidityRange == nil || t.LiquidityRange.LessThan(liquidityRangeMin) || t.LiquidityRange.GreaterThan(liquidityRangeMax) {
 		log.Fatalf("Invalid liquidity range in trigger configuration")
 	}
-	if t.MinLiquidity == nil || *t.MinLiquidity < 100.0 || *t.MinLiquidity > 100000.0 {
+	minLiquidityMin := decimal.NewFromInt(100)
+	minLiquidityMax := decimal.NewFromInt(100000)
+	if t.MinLiquidity == nil || t.MinLiquidity.LessThan(minLiquidityMin) || t.MinLiquidity.GreaterThan(minLiquidityMax) {
 		log.Fatalf("Invalid min liquidity in trigger configuration")
 	}
-	if t.LimitOffset == nil || *t.LimitOffset < 0.01 || *t.LimitOffset > 0.99 {
+	limitOffsetMin := decimalConstant("0.01")
+	limitOffsetMax := decimalConstant("0.99")
+	if t.LimitOffset == nil || t.LimitOffset.LessThan(limitOffsetMin) || t.LimitOffset.GreaterThan(limitOffsetMax) {
 		log.Fatalf("Invalid limit offset in trigger configuration")
 	}
 	if t.Size == nil || *t.Size < 5 || *t.Size > 1000 {
@@ -138,4 +156,13 @@ func (c *DatabaseConfiguration) validate() {
 	if c.Database == nil {
 		log.Fatalf("MongoDB database missing in configuration file")
 	}
+}
+
+func (d *SerializableDecimal) UnmarshalYAML(value *yaml.Node) error {
+	decimalValue, err := decimal.NewFromString(value.Value)
+	if err != nil {
+		return err
+	}
+	d.Decimal = decimalValue
+	return nil
 }

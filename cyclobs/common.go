@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/shopspring/decimal"
 	"golang.org/x/sys/windows"
 )
 
@@ -59,10 +60,6 @@ func intToString(integer int64) string {
 	return strconv.FormatInt(integer, 10)
 }
 
-func stringToFloat(floatString string) (float64, error) {
-	return strconv.ParseFloat(floatString, 64)
-}
-
 func getJSON[T any](base string, parameters map[string]string) (T, error) {
 	u, err := url.Parse(base)
 	if err != nil {
@@ -93,4 +90,12 @@ func getJSON[T any](base string, parameters map[string]string) (T, error) {
 		return empty, err
 	}
 	return output, nil
+}
+
+func decimalConstant(s string) decimal.Decimal {
+	output, err := decimal.NewFromString(s)
+	if err != nil {
+		log.Fatalf("Failed to convert string \"%s\" to decimal: %v", s, err)
+	}
+	return output
 }

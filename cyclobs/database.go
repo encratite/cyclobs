@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/emirpasic/gods/maps/treemap"
+	"github.com/shopspring/decimal"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -253,12 +254,10 @@ func getPriceLevels(book *treemap.Map, bids bool) []PriceLevel {
 		bidsMatch := bids && offset < databaseBookDepth
 		asksMatch := !bids && book.Size() - offset <= databaseBookDepth
 		if bidsMatch || asksMatch {
-			price := it.Key().(float64)
-			size := it.Value().(float64)
-			priceString := fmt.Sprintf("%.3f", price)
-			sizeString := fmt.Sprintf("%.3f", size)
-			priceDecimal, _ := bson.ParseDecimal128(priceString)
-			sizeDecimal, _ := bson.ParseDecimal128(sizeString)
+			price := it.Key().(decimal.Decimal)
+			size := it.Value().(decimal.Decimal)
+			priceDecimal, _ := bson.ParseDecimal128(price.String())
+			sizeDecimal, _ := bson.ParseDecimal128(size.String())
 			priceLevel := PriceLevel{
 				Price: priceDecimal,
 				Size: sizeDecimal,

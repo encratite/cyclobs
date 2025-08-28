@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/polymarket/go-order-utils/pkg/builder"
 	"github.com/polymarket/go-order-utils/pkg/model"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -63,15 +64,16 @@ type OrderResponse struct {
 	Success bool `json:"success"`
 }
 
-func postOrder(slug, tokenID string, side model.Side, size int, limit float64, negRisk bool, expiration int) error {
+func postOrder(slug, tokenID string, side model.Side, size int, limit decimal.Decimal, negRisk bool, expiration int) error {
 	if len(tokenID) < 20 {
 		log.Fatalf("Invalid tokenID")
 	}
 	if size < 5 {
 		log.Fatalf("Invalid number of contracts: %d", size)
 	}
-	if limit < 0.01 {
-		log.Fatalf("Invalid order limit: %.4f", limit)
+	limitMin := decimalConstant("0.01")
+	if limit.LessThan(limitMin) {
+		log.Fatalf("Invalid order limit: %s", limit)
 	}
 	if expiration < 0 {
 		log.Fatalf("Invalid expiration: %d", expiration)
@@ -81,21 +83,24 @@ func postOrder(slug, tokenID string, side model.Side, size int, limit float64, n
 		sideString = sideSell
 	}
 	beep()
-	if !*configuration.Live {
-		log.Printf("Not posting %s order for asset %s, system is not live\n", sideString, tokenID)
-		return nil
-	}
-	limit = float64(int(limit * centsPerDollar)) / float64(centsPerDollar)
-	log.Printf("Posting order: slug = %s, tokenID = %s, side = %d, size = %d, limit = %.3f, negRisk = %t, expiration = %d\n", slug, tokenID, side, size, limit, negRisk, expiration)
+	limit = limit.Round(2)
 	bigChainId := big.NewInt(chainId)
 	orderBuilder := builder.NewExchangeOrderBuilderImpl(bigChainId, nil)
-	makerAmount := int64(float64(size) * limit * centsPerDollar) * ticksPerCent
+	decimalSize := decimal.NewFromInt(int64(size))
+	decimalCentsPerDollar := decimal.NewFromInt(centsPerDollar)
+	makerAmount := decimalSize.Mul(limit).Mul(decimalCentsPerDollar).IntPart() * ticksPerCent
 	takerAmount := int64(size * centsPerDollar) * ticksPerCent
 	if side == model.SELL {
 		makerSwap := takerAmount
 		takerSwap := makerAmount
 		makerAmount = makerSwap
 		takerAmount = takerSwap
+	}
+	format := "Posting order: slug = %s, tokenID = %s, side = %d, size = %d, limit = %s, negRisk = %t, expiration = %d, makerAmount = %d, takerAmount = %d\n"
+	log.Printf(format, slug, tokenID, side, size, limit, negRisk, expiration, makerAmount, takerAmount)
+	if !*configuration.Live {
+		log.Printf("Not posting %s order for %s, system is not live\n", sideString, slug)
+		return nil
 	}
 	var expirationString string
 	if expiration > 0 {
