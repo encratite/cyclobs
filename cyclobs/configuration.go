@@ -17,6 +17,7 @@ type Configuration struct {
 	PositionLimit *int `yaml:"positionLimit"`
 	Cleaner CleanerConfiguration `yaml:"cleaner"`
 	Triggers []Trigger `yaml:"triggers"`
+	Database DatabaseConfiguration `yaml:"database"`
 }
 
 type Credentials struct {
@@ -43,6 +44,11 @@ type Trigger struct {
 	MinLiquidity *float64 `yaml:"minLiquidity"`
 	LimitOffset *float64 `yaml:"limitOffset"`
 	Size *int `yaml:"size"`
+}
+
+type DatabaseConfiguration struct {
+	URI *string `yaml:"uri"`
+	Database *string `yaml:"database"`
 }
 
 var configuration *Configuration
@@ -80,6 +86,7 @@ func (c *Configuration) validate() {
 	for _, trigger := range c.Triggers {
 		trigger.validate()
 	}
+	c.Database.validate()
 }
 
 func (c *CleanerConfiguration) validate() {
@@ -121,5 +128,14 @@ func (t *Trigger) validate() {
 	}
 	if t.Size == nil || *t.Size < 5 || *t.Size > 1000 {
 		log.Fatalf("Invalid position size in trigger configuration")
+	}
+}
+
+func (c *DatabaseConfiguration) validate() {
+	if c.URI == nil {
+		log.Fatalf("MongoDB URI missing in configuration file")
+	}
+	if c.Database == nil {
+		log.Fatalf("MongoDB database missing in configuration file")
 	}
 }

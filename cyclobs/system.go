@@ -33,6 +33,7 @@ type tradingSystem struct {
 	subscriptions map[string]marketSubscription
 	positions int
 	mutex sync.Mutex
+	database databaseClient
 }
 
 type marketSubscription struct {
@@ -56,10 +57,12 @@ type positionState struct {
 
 func RunSystem() {
 	loadConfiguration()
+	database := newDatabaseClient()
 	system := tradingSystem{
 		markets: []Market{},
 		subscriptions: map[string]marketSubscription{},
 		positions: 0,
+		database: database,
 	}
 	system.run()
 }
@@ -69,6 +72,7 @@ func (s *tradingSystem) run() {
 	sleep := func () {
 		time.Sleep(time.Duration(reconnectDelay) * time.Second)
 	}
+	defer s.database.close()
 	for {
 		markets, err := getMarkets()
 		if err != nil {
@@ -164,6 +168,7 @@ func (s *tradingSystem) onBookMessage(message BookMessage) {
 	case lastTradePriceEvent:
 		s.onLastTradePrice(message, subscription)
 	}
+	s.database.insertBookMessage(message, subscription)
 	_ = subscription.validateOrderBook()
 	s.subscriptions[key] = subscription
 }
