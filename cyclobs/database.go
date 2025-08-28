@@ -264,13 +264,7 @@ func (c *databaseClient) insertPriceChange(message BookMessage) {
 		c.priceChangeBuffer = append(c.priceChangeBuffer, priceChange)
 	}
 	if len(c.priceChangeBuffer) >= priceChangeBufferLimit {
-		ctx, cancel := getDatabaseContext()
-		defer cancel()
-		_, insertErr := c.priceChanges.InsertMany(ctx, c.priceChangeBuffer)
-		if insertErr != nil {
-			log.Printf("Warning: failed to insert price change into database: %v\n", insertErr)
-		}
-		c.priceChangeBuffer = c.priceChangeBuffer[:0]
+		c.flushBuffer()
 	}
 }
 
@@ -306,6 +300,16 @@ func (c *databaseClient) insertLastTradePrice(message BookMessage, subscription 
 	if insertErr != nil {
 		log.Printf("Warning: failed to last trade price into database: %v\n", err)
 	}
+}
+
+func (c *databaseClient) flushBuffer() {
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	_, insertErr := c.priceChanges.InsertMany(ctx, c.priceChangeBuffer)
+	if insertErr != nil {
+		log.Printf("Warning: failed to insert price change into database: %v\n", insertErr)
+	}
+	c.priceChangeBuffer = c.priceChangeBuffer[:0]
 }
 
 func convertTimestampString(timestamp string) (time.Time, error) {

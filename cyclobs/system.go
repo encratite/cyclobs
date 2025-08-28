@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"regexp"
 	"slices"
 	"sync"
@@ -73,6 +75,7 @@ func (s *tradingSystem) run() {
 		time.Sleep(time.Duration(reconnectDelay) * time.Second)
 	}
 	defer s.database.close()
+	s.interrupt()
 	for {
 		markets, eventSlugMap, err := getMarkets()
 		if err != nil {
@@ -92,6 +95,17 @@ func (s *tradingSystem) run() {
 		}
 		sleep()
 	}
+}
+
+func (s *tradingSystem) interrupt() {
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt)
+	go func() {
+		<-interrupt
+		log.Println("Received interrupt signal, flushing buffer")
+		s.database.flushBuffer()
+		os.Exit(0)
+	}()
 }
 
 func (s *tradingSystem) runCleaner() {
@@ -197,11 +211,14 @@ func (s *tradingSystem) onPriceChange(message BookMessage, subscription marketSu
 			continue
 		}
 		var side, otherSide *treemap.Map
+		var bid bool
 		switch change.Side {
 		case sideBuy:
+			bid = true
 			side = subscription.bids
 			otherSide = subscription.asks
 		case sideSell:
+			bid = false
 			side = subscription.asks
 			otherSide = subscription.bids
 		default:
@@ -209,7 +226,27 @@ func (s *tradingSystem) onPriceChange(message BookMessage, subscription marketSu
 		}
 		if size.IsPositive() {
 			side.Put(price, size)
-			otherSide.Remove(price)
+			removeKeys := []decimal.Decimal{}
+			it := otherSide.Iterator()
+			if bid {
+				for it.Next() {
+					key := it.Key().(decimal.Decimal)
+					if key.LessThanOrEqual(price) {
+						removeKeys = append(removeKeys, key)
+					}
+				}
+			} else {
+				it.End()
+				for it.Prev() {
+					key := it.Key().(decimal.Decimal)
+					if key.GreaterThanOrEqual(price) {
+						removeKeys = append(removeKeys, key)
+					}
+				}
+			}
+			for _, key := range removeKeys {
+				otherSide.Remove(key)
+			}
 		} else if size.IsZero() {
 			side.Remove(price)
 			otherSide.Remove(price)
