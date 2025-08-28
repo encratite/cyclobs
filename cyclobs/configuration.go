@@ -118,7 +118,7 @@ func (t *Trigger) validate() {
 	if t.Delta == nil || t.Delta.LessThan(deltaMin) || t.Delta.GreaterThan(deltaMax) {
 		log.Fatalf("Invalid delta in trigger configuration")
 	}
-	priceMin := decimalConstant("0.0")
+	priceMin := decimal.Zero
 	priceMax := decimalConstant("1.0")
 	if t.MinPrice == nil || t.MinPrice.LessThan(priceMin) || t.MinPrice.GreaterThan(priceMax) {
 		log.Fatalf("Invalid min price in trigger configuration")

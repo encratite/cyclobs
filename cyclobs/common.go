@@ -31,6 +31,15 @@ func contains[T comparable](slice []T, value T) bool {
 	return false
 }
 
+func containsFunc[T any](slice []T, match func (T) bool) bool {
+	for _, x := range slice {
+		if match(x) {
+			return true
+		}
+	}
+	return false
+}
+
 func find[T any](slice []T, match func (T) bool) (T, bool) {
 	index := slices.IndexFunc(slice, func (element T) bool {
 		return match(element)

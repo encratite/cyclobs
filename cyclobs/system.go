@@ -23,6 +23,7 @@ const (
 	lastTradePriceEvent = "last_trade_price"
 	invalidTriggerID = -1
 	debugPriceChange = false
+	debugLastTradePrice = false
 	debugOrderBook = false
 	bookSidePrintLimit = 5
 )
@@ -233,7 +234,9 @@ func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription marke
 		timestamp: time.Now(),
 		price: price,
 	}
-	log.Printf("%s: slug = %s, price = %s, size = %s, side = %s\n", lastTradePriceEvent, subscription.slug, message.Price, message.Size, message.Side)
+	if debugLastTradePrice {
+		log.Printf("%s: slug = %s, price = %s, size = %s, side = %s\n", lastTradePriceEvent, subscription.slug, message.Price, message.Size, message.Side)
+	}
 	subscription.add(event)
 	if message.Side == sideBuy {
 		triggerID, trigger := subscription.getMatchingTrigger()
@@ -415,12 +418,12 @@ func (s *marketSubscription) validateOrderBook() bool {
 		itBids := s.bids.Iterator()
 		itBids.End()
 		_ = itBids.Prev()
-		highestBid := itBids.Key().(float64)
+		highestBid := itBids.Key().(decimal.Decimal)
 		itAsks := s.asks.Iterator()
 		itAsks.Begin()
 		_ = itAsks.Next()
-		lowestAsk := itAsks.Key().(float64)
-		if lowestAsk <= highestBid {
+		lowestAsk := itAsks.Key().(decimal.Decimal)
+		if lowestAsk.LessThanOrEqual(highestBid) {
 			log.Printf("Warning: invalid LOB state for %s\n", s.slug)
 			s.printOrderBook()
 			return false
@@ -456,9 +459,16 @@ func getMarkets() ([]Market, error) {
 		for _, event := range events {
 			for _, market := range event.Markets {
 				volume := decimal.NewFromFloat(market.Volume24Hr)
-				if volume.GreaterThan(configuration.MinVolume.Decimal) {
-					markets = append(markets, market)
+				if volume.LessThan(configuration.MinVolume.Decimal) {
+					continue
 				}
+				exists := containsFunc(markets, func (m Market) bool {
+					return m.ConditionID == market.ConditionID
+				})
+				if exists {
+					continue
+				}
+				markets = append(markets, market)
 			}
 		}
 	}

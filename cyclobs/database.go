@@ -24,8 +24,6 @@ const (
 )
 
 type databaseClient struct {
-	ctx context.Context
-	cancel context.CancelFunc
 	client *mongo.Client
 	database *mongo.Database
 	bookEvent *mongo.Collection
@@ -67,7 +65,6 @@ type PriceLevel struct {
 }
 
 func newDatabaseClient() databaseClient {
-	ctx, cancel := context.WithTimeout(context.Background(), databaseTimeout * time.Second)
 	options := options.Client().ApplyURI(*configuration.Database.URI)
 	client, err := mongo.Connect(options)
 	if err != nil {
@@ -78,8 +75,6 @@ func newDatabaseClient() databaseClient {
 	priceChange := database.Collection(priceChangeCollection)
 	lastTradePrice := database.Collection(lastTradePriceCollection)
 	return databaseClient{
-		ctx: ctx,
-		cancel: cancel,
 		client: client,
 		database: database,
 		bookEvent: bookEvent,
@@ -89,8 +84,9 @@ func newDatabaseClient() databaseClient {
 }
 
 func (c *databaseClient) close() {
-	c.cancel()
-	c.client.Disconnect(c.ctx)
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	c.client.Disconnect(ctx)
 }
 
 func (c *databaseClient) insertBookMessage(message BookMessage, subscription marketSubscription) {
@@ -125,25 +121,59 @@ func (c *databaseClient) insertBookEvent(message BookMessage) {
 		Bids: bids,
 		Asks: asks,
 	}
-	_, insertErr := c.bookEvent.InsertOne(c.ctx, bookEvent)
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	_, insertErr := c.bookEvent.InsertOne(ctx, bookEvent)
 	if insertErr != nil {
 		log.Printf("Warning: failed to insert book event into database: %v\n", err)
 	}
 }
 
 func (c *databaseClient) insertPriceChange(message BookMessage) {
-	priceChange, err := getPriceChange(message)
+	serverTime, err := convertTimestampString(message.Timestamp)
 	if err != nil {
 		return
 	}
-	_, insertErr := c.priceChange.InsertOne(c.ctx, priceChange)
+	localTime := time.Now()
+	priceChanges := []PriceChangeBSON{}
+	for _, change := range message.Changes {
+		price, size, err := convertPriceSize(change.Price, change.Size)
+		if err != nil {
+			return
+		}
+		buy, err := convertSide(change.Side)
+		if err != nil {
+			return
+		}
+		priceChange := PriceChangeBSON{
+			AssetID: message.AssetID,
+			ServerTime: serverTime,
+			LocalTime: localTime,
+			Price: price,
+			Size: size,
+			Buy: buy,
+		}
+		priceChanges = append(priceChanges, priceChange)
+	}
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	_, insertErr := c.priceChange.InsertMany(ctx, priceChanges)
 	if insertErr != nil {
-		log.Printf("Warning: failed to price change into database: %v\n", err)
+		log.Printf("Warning: failed to insert price change into database: %v\n", insertErr)
 	}
 }
 
 func (c *databaseClient) insertLastTradePrice(message BookMessage, subscription marketSubscription) {
-	priceChange, err := getPriceChange(message)
+	serverTime, err := convertTimestampString(message.Timestamp)
+	if err != nil {
+		return
+	}
+	localTime := time.Now()
+	price, size, err := convertPriceSize(message.Price, message.Size)
+	if err != nil {
+		return
+	}
+	buy, err := convertSide(message.Side)
 	if err != nil {
 		return
 	}
@@ -151,15 +181,17 @@ func (c *databaseClient) insertLastTradePrice(message BookMessage, subscription 
 	asks := getPriceLevels(subscription.asks, false)
 	lastTradePrice := LastTradePrice{
 		AssetID: message.AssetID,
-		ServerTime: priceChange.ServerTime,
-		LocalTime: priceChange.LocalTime,
-		Price: priceChange.Price,
-		Size: priceChange.Size,
-		Buy: priceChange.Buy,
+		ServerTime: serverTime,
+		LocalTime: localTime,
+		Price: price,
+		Size: size,
+		Buy: buy,
 		Bids: bids,
 		Asks: asks,
 	}
-	_, insertErr := c.lastTradePrice.InsertOne(c.ctx, lastTradePrice)
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	_, insertErr := c.lastTradePrice.InsertOne(ctx, lastTradePrice)
 	if insertErr != nil {
 		log.Printf("Warning: failed to last trade price into database: %v\n", err)
 	}
@@ -220,31 +252,6 @@ func convertPriceSize(price, size string) (bson.Decimal128, bson.Decimal128, err
 	return priceDecimal, sizeDecimal, nil
 }
 
-func getPriceChange(message BookMessage) (PriceChangeBSON, error) {
-	serverTime, err := convertTimestampString(message.Timestamp)
-	if err != nil {
-		return PriceChangeBSON{}, err
-	}
-	localTime := time.Now()
-	price, size, err := convertPriceSize(message.Price, message.Size)
-	if err != nil {
-		return PriceChangeBSON{}, err
-	}
-	buy, err := convertSide(message.Side)
-	if err != nil {
-		return PriceChangeBSON{}, err
-	}
-	priceChange := PriceChangeBSON{
-		AssetID: message.AssetID,
-		ServerTime: serverTime,
-		LocalTime: localTime,
-		Price: price,
-		Size: size,
-		Buy: buy,
-	}
-	return priceChange, nil
-}
-
 func getPriceLevels(book *treemap.Map, bids bool) []PriceLevel {
 	it := book.Iterator()
 	it.End()
@@ -268,4 +275,9 @@ func getPriceLevels(book *treemap.Map, bids bool) []PriceLevel {
 	}
 	it = book.Iterator()
 	return priceLevels
+}
+
+func getDatabaseContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), databaseTimeout * time.Second)
+	return ctx, cancel
 }
