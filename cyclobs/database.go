@@ -18,6 +18,7 @@ const (
 	databaseTimeout = 5
 	millisecondsPerSecond = 1000
 	databaseBookDepth = 10
+	priceChangeBufferLimit = 250
 	marketCollection = "markets"
 	marketVolumeCollection = "market_volume"
 	bookEventCollection = "book_events"
@@ -33,6 +34,7 @@ type databaseClient struct {
 	bookEvents *mongo.Collection
 	priceChanges *mongo.Collection
 	lastTradePrices *mongo.Collection
+	priceChangeBuffer []PriceChangeBSON
 }
 
 type MarketBSON struct {
@@ -102,6 +104,7 @@ func newDatabaseClient() databaseClient {
 		bookEvents: bookEvents,
 		priceChanges: priceChanges,
 		lastTradePrices: lastTradePrices,
+		priceChangeBuffer: []PriceChangeBSON{},
 	}
 	dbClient.createIndexes()
 	return dbClient
@@ -241,7 +244,6 @@ func (c *databaseClient) insertPriceChange(message BookMessage) {
 		return
 	}
 	localTime := time.Now()
-	priceChanges := []PriceChangeBSON{}
 	for _, change := range message.Changes {
 		price, size, err := convertPriceSize(change.Price, change.Size)
 		if err != nil {
@@ -259,13 +261,16 @@ func (c *databaseClient) insertPriceChange(message BookMessage) {
 			Size: size,
 			Buy: buy,
 		}
-		priceChanges = append(priceChanges, priceChange)
+		c.priceChangeBuffer = append(c.priceChangeBuffer, priceChange)
 	}
-	ctx, cancel := getDatabaseContext()
-	defer cancel()
-	_, insertErr := c.priceChanges.InsertMany(ctx, priceChanges)
-	if insertErr != nil {
-		log.Printf("Warning: failed to insert price change into database: %v\n", insertErr)
+	if len(c.priceChangeBuffer) >= priceChangeBufferLimit {
+		ctx, cancel := getDatabaseContext()
+		defer cancel()
+		_, insertErr := c.priceChanges.InsertMany(ctx, c.priceChangeBuffer)
+		if insertErr != nil {
+			log.Printf("Warning: failed to insert price change into database: %v\n", insertErr)
+		}
+		c.priceChangeBuffer = c.priceChangeBuffer[:0]
 	}
 }
 
