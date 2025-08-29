@@ -19,7 +19,7 @@ import (
 
 const (
 	eventsLimit = 50
-	reconnectDelay = 60
+	reconnectDelay = 10
 	bookEvent = "book"
 	priceChangeEvent = "price_change"
 	lastTradePriceEvent = "last_trade_price"
@@ -27,6 +27,7 @@ const (
 	debugPriceChange = false
 	debugLastTradePrice = false
 	debugOrderBook = false
+	debugTrigger = true
 	bookSidePrintLimit = 5
 )
 
@@ -91,7 +92,7 @@ func (s *tradingSystem) run() {
 			}
 		})
 		if err != nil {
-			log.Printf("Subscription error: %v\n", err)
+			log.Printf("Subscription error: %v", err)
 		}
 		sleep()
 	}
@@ -132,11 +133,11 @@ func (s *tradingSystem) runCleaner() {
 					added: now,
 				}
 				states[position.Asset] = state
-				log.Printf("Detected new position in cleaner: slug = %s, size = %.2f, added = %s\n", position.Slug, position.Size, now)
+				log.Printf("Detected new position in cleaner: slug = %s, size = %.2f, added = %s", position.Slug, position.Size, now)
 				continue
 			}
 			if state.size != position.Size {
-				log.Printf("Size of position %s has changed from %.2f to %.2f, resetting expiration\n", position.Slug, state.size, position.Size)
+				log.Printf("Size of position %s has changed from %.2f to %.2f, resetting expiration", position.Slug, state.size, position.Size)
 				states[position.Asset] = positionState{
 					size: position.Size,
 					added: now,
@@ -147,7 +148,7 @@ func (s *tradingSystem) runCleaner() {
 			if age < positionExpiration {
 				continue
 			}
-			log.Printf("Position %s has expired, closing it\n", position.Slug)
+			log.Printf("Position %s has expired, closing it", position.Slug)
 			size := int(position.Size)
 			decimalPrice := decimal.NewFromFloat(position.CurPrice)
 			limit := decimalPrice.Sub(cleanerConfig.LimitOffset.Decimal)
@@ -182,18 +183,18 @@ func (s *tradingSystem) onBookMessage(message BookMessage) {
 	}
 	switch message.EventType {
 	case bookEvent:
-		s.onBookEvent(message, subscription)
+		s.onBookEvent(message, &subscription)
 	case priceChangeEvent:
-		s.onPriceChange(message, subscription)
+		s.onPriceChange(message, &subscription)
 	case lastTradePriceEvent:
-		s.onLastTradePrice(message, subscription)
+		s.onLastTradePrice(message, &subscription)
 	}
 	s.database.insertBookMessage(message, subscription)
 	_ = subscription.validateOrderBook()
 	s.subscriptions[key] = subscription
 }
 
-func (s *tradingSystem) onBookEvent(message BookMessage, subscription marketSubscription) {
+func (s *tradingSystem) onBookEvent(message BookMessage, subscription *marketSubscription) {
 	putPriceLevels(subscription.bids, message.Bids)
 	putPriceLevels(subscription.asks, message.Asks)
 	if debugOrderBook {
@@ -201,10 +202,10 @@ func (s *tradingSystem) onBookEvent(message BookMessage, subscription marketSubs
 	}
 }
 
-func (s *tradingSystem) onPriceChange(message BookMessage, subscription marketSubscription) {
+func (s *tradingSystem) onPriceChange(message BookMessage, subscription *marketSubscription) {
 	for i, change := range message.Changes {
 		if debugPriceChange {
-			log.Printf("%s[%d]: slug = %s, price = %s, size = %s, side = %s\n", priceChangeEvent, i, subscription.slug, change.Price, change.Size, change.Side)
+			log.Printf("%s[%d]: slug = %s, price = %s, size = %s, side = %s", priceChangeEvent, i, subscription.slug, change.Price, change.Size, change.Side)
 		}
 		price, size, err := getPriceSize(change.Price, change.Size)
 		if err != nil {
@@ -251,7 +252,7 @@ func (s *tradingSystem) onPriceChange(message BookMessage, subscription marketSu
 			side.Remove(price)
 			otherSide.Remove(price)
 		} else {
-			log.Printf("Warning: negative price change\n")
+			log.Printf("Warning: negative price change")
 			side.Remove(price)
 			otherSide.Remove(price)
 		}
@@ -261,11 +262,11 @@ func (s *tradingSystem) onPriceChange(message BookMessage, subscription marketSu
 	}
 }
 
-func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription marketSubscription) {
+func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription *marketSubscription) {
 	assetID := message.AssetID
 	price, err := decimal.NewFromString(message.Price)
 	if err != nil {
-		log.Printf("Failed to read price: \"%s\"\n", message.Price)
+		log.Printf("Failed to read price: \"%s\"", message.Price)
 		return
 	}
 	event := priceEvent{
@@ -273,7 +274,7 @@ func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription marke
 		price: price,
 	}
 	if debugLastTradePrice {
-		log.Printf("%s: slug = %s, price = %s, size = %s, side = %s\n", lastTradePriceEvent, subscription.slug, message.Price, message.Size, message.Side)
+		log.Printf("%s: slug = %s, price = %s, size = %s, side = %s", lastTradePriceEvent, subscription.slug, message.Price, message.Size, message.Side)
 	}
 	subscription.add(event)
 	if message.Side == sideBuy {
@@ -281,10 +282,10 @@ func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription marke
 		if triggerID != invalidTriggerID {
 			positions := s.getPositions()
 			if positions >= *configuration.PositionLimit {
-				log.Printf("Warning: found matching trigger but there are already %d active positions\n", s.positions)
+				log.Printf("Warning: found matching trigger but there are already %d active positions", s.positions)
 				return
 			}
-			log.Printf("Trigger %d activated for %s at %s\n", triggerID, subscription.slug, price)
+			log.Printf("Trigger %d activated for %s at %s", triggerID, subscription.slug, price)
 			orderPrice := price.Add(trigger.LimitOffset.Decimal)
 			_ = postOrder(subscription.slug, assetID, model.BUY, *trigger.Size, orderPrice, subscription.negRisk, *configuration.OrderExpiration)
 			subscription.setTriggered(triggerID)
@@ -312,7 +313,7 @@ func (s *tradingSystem) getSubscription(assetID string) (marketSubscription, boo
 	if !success {
 		market, exists := s.getMarket(assetID)
 		if !exists {
-			log.Printf("Warning: unable to find matching market for asset ID %s\n", assetID)
+			log.Printf("Warning: unable to find matching market for asset ID %s", assetID)
 			return marketSubscription{}, false
 		}
 		subscription = marketSubscription{
@@ -360,33 +361,41 @@ func (s *marketSubscription) getMatchingTrigger() (int, Trigger) {
 	for triggerID, trigger := range configuration.Triggers {
 		triggered := contains(s.triggered, triggerID)
 		if triggered {
-			log.Printf("Warning: skipping trigger %d for %s because it had already been triggered for this subscription\n", triggerID, s.slug)
+			log.Printf("Warning: skipping trigger %d for %s because it had already been triggered for this subscription", triggerID, s.slug)
 			continue
 		}
 		first, exists := s.getFirstPrice(trigger)
 		if !exists {
-			log.Printf("Warning: no price data available for %s\n", s.slug)
+			log.Printf("Warning: no price data available for %s", s.slug)
 			return invalidTriggerID, Trigger{}
 		}
 		last := s.prices.Back()
 		if last.timestamp.Before(first.timestamp) {
-			log.Printf("Warning: inconsistent timestamps in price data for %s\n", s.slug)
+			log.Printf("Warning: inconsistent timestamps in price data for %s", s.slug)
 			return invalidTriggerID, Trigger{}
 		}
 		delta := last.price.Sub(first.price)
 		if delta.LessThan(trigger.Delta.Decimal) {
-			log.Printf("Info: delta from %s too low for trigger %d: delta = %s, trigger.Delta = %s\n", s.slug, triggerID, delta, *trigger.Delta)
+			if debugTrigger {
+				format := "Info: delta from %s too low for trigger %d: first.timestamp = %s, first.price = %s, last.timestamp = %s, last.price = %s, delta = %s, trigger.Delta = %s"
+				log.Printf(format, s.slug, triggerID, getTimeString(first.timestamp), first.price, getTimeString(last.timestamp), last.price, delta, *trigger.Delta)
+			}
 			continue
 		}
 		if last.price.LessThan(trigger.MinPrice.Decimal) || last.price.GreaterThan(trigger.MaxPrice.Decimal) {
-			format := "Info: price of %s outside of range for trigger %d: price = %s, trigger.MinPrice = %s, trigger.MaxPrice = %s\n"
-			log.Printf(format, s.slug, triggerID, last.price, *trigger.MinPrice, *trigger.MaxPrice)
+			if debugTrigger {
+				format := "Info: price of %s outside of range for trigger %d: price = %s, trigger.MinPrice = %s, trigger.MaxPrice = %s"
+				log.Printf(format, s.slug, triggerID, last.price, *trigger.MinPrice, *trigger.MaxPrice)
+			}
 			continue
 		}
 		bidLiquidity, askLiquidity := s.getLiquidity(last.price, trigger.LiquidityRange.Decimal)
 		if bidLiquidity.LessThan(trigger.MinLiquidity.Decimal) || askLiquidity.LessThan(trigger.MinLiquidity.Decimal) {
-			format := "Info: liquidity requirements for %s were not met: bidLiquidity = %s, askLiquidity = %s, trigger.MinLiquidity = %s\n"
-			log.Printf(format, s.slug, bidLiquidity, askLiquidity, *trigger.MinLiquidity)
+			if debugTrigger {
+				format := "Info: liquidity requirements for %s were not met: bidLiquidity = %s, askLiquidity = %s, trigger.MinLiquidity = %s"
+				log.Printf(format, s.slug, bidLiquidity, askLiquidity, *trigger.MinLiquidity)
+			}
+			continue
 		}
 		valid := s.validateOrderBook()
 		if !valid {
@@ -444,7 +453,7 @@ func (s *marketSubscription) getFirstPrice(trigger Trigger) (priceEvent, bool) {
 }
 
 func (s *marketSubscription) printOrderBook() {
-	log.Printf("LOB for %s:\n", s.slug)
+	log.Printf("LOB for %s:", s.slug)
 	fmt.Printf("  Asks:\n")
 	printBookSide(s.asks, false)
 	fmt.Printf("  Bids:\n")
@@ -462,7 +471,7 @@ func (s *marketSubscription) validateOrderBook() bool {
 		_ = itAsks.Next()
 		lowestAsk := itAsks.Key().(decimal.Decimal)
 		if lowestAsk.LessThanOrEqual(highestBid) {
-			log.Printf("Warning: invalid LOB state for %s\n", s.slug)
+			log.Printf("Warning: invalid LOB state for %s", s.slug)
 			s.printOrderBook()
 			return false
 		} else {
@@ -534,7 +543,7 @@ func printMarketStats(markets []Market) {
 	}
 	first := markets[0]
 	last := markets[len(markets) - 1]
-	log.Printf("Market 24h volume range: %.2f - %.2f\n", last.Volume24Hr, first.Volume24Hr)
+	log.Printf("Market 24h volume range: %.2f - %.2f", last.Volume24Hr, first.Volume24Hr)
 }
 
 func getAssetIDs(markets []Market) []string {
@@ -564,7 +573,7 @@ func getCLOBTokenIds(market Market) []string {
 func getYesTokenID(market Market) (string, bool) {
 	tokenIDs := getCLOBTokenIds(market)
 	if len(tokenIDs) != 2 {
-		log.Printf("Warning: Unable to extract token ID for market %s\n", market.Slug)
+		log.Printf("Warning: Unable to extract token ID for market %s", market.Slug)
 		return "", false
 	}
 	yesTokenID := tokenIDs[0]

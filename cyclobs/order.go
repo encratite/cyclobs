@@ -96,10 +96,10 @@ func postOrder(slug, tokenID string, side model.Side, size int, limit decimal.De
 		makerAmount = makerSwap
 		takerAmount = takerSwap
 	}
-	format := "Posting order: slug = %s, tokenID = %s, side = %d, size = %d, limit = %s, negRisk = %t, expiration = %d, makerAmount = %d, takerAmount = %d\n"
+	format := "Posting order: slug = %s, tokenID = %s, side = %d, size = %d, limit = %s, negRisk = %t, expiration = %d, makerAmount = %d, takerAmount = %d"
 	log.Printf(format, slug, tokenID, side, size, limit, negRisk, expiration, makerAmount, takerAmount)
 	if !*configuration.Live {
-		log.Printf("Not posting %s order for %s, system is not live\n", sideString, slug)
+		log.Printf("Not posting %s order for %s, system is not live", sideString, slug)
 		return nil
 	}
 	var expirationString string
@@ -221,7 +221,7 @@ func postOrder(slug, tokenID string, side model.Side, size int, limit decimal.De
 		log.Printf("Failed to read response after posting order: %v", err)
 		return err
 	}
-	log.Printf("Order response: %s\n", responseBody)
+	log.Printf("Order response: %s", responseBody)
 	var orderResponse OrderResponse
 	err = json.Unmarshal(responseBody, &orderResponse)
 	if err != nil {

@@ -38,13 +38,13 @@ func subscribeToMarkets(assetIDs []string, callback func ([]BookMessage)) error 
 			pingData := []byte("PING")
 			err := connection.WriteMessage(websocket.TextMessage, pingData)
 			if err != nil {
-				log.Printf("Failed to send ping: %v\n", err)
+				log.Printf("Failed to send ping: %v", err)
 				break
 			}
 			time.Sleep(10 * time.Second)
 		}
 	}()
-	log.Printf("Subscribed to %d markets\n", len(assetIDs))
+	log.Printf("Subscribed to %d markets", len(assetIDs))
 	for {
 		_, message, err := connection.ReadMessage()
 		if err != nil {
@@ -57,11 +57,11 @@ func subscribeToMarkets(assetIDs []string, callback func ([]BookMessage)) error 
 		var bookMessages []BookMessage
 		err = json.Unmarshal(message, &bookMessages)
 		if err != nil {
-			log.Printf("Failed to deserialize message: %s\n", messageString)
+			log.Printf("Failed to deserialize message: %s", messageString)
 			return fmt.Errorf("Failed to deserialize book message: %v\n", err)
 		}
 		if len(bookMessages) > 1 {
-			log.Printf("Received %d book messages\n", len(bookMessages))
+			log.Printf("Received %d book messages", len(bookMessages))
 		}
 		callback(bookMessages)
 	}

@@ -169,7 +169,7 @@ func (c *databaseClient) insertMarkets(markets []Market, assetIDs []string, even
 	for i, market := range markets {
 		event, exists := eventSlugMap[market.Slug]
 		if !exists {
-			log.Printf("Warning: unable to determine event slug for market %s\n", market.Slug)
+			log.Printf("Warning: unable to determine event slug for market %s", market.Slug)
 			continue
 		}
 		assetID := assetIDs[i]
@@ -194,7 +194,7 @@ func (c *databaseClient) insertMarkets(markets []Market, assetIDs []string, even
 	c.markets.InsertMany(ctx, dbMarkets, ordered)
 	_, err := c.marketVolume.InsertMany(ctx, dbVolume)
 	if err != nil {
-		log.Printf("Failed to insert volume data: %v\n", err)
+		log.Printf("Failed to insert volume data: %v", err)
 	}
 }
 
@@ -234,7 +234,7 @@ func (c *databaseClient) insertBookEvent(message BookMessage) {
 	defer cancel()
 	_, insertErr := c.bookEvents.InsertOne(ctx, bookEvent)
 	if insertErr != nil {
-		log.Printf("Warning: failed to insert book event into database: %v\n", err)
+		log.Printf("Warning: failed to insert book event into database: %v", err)
 	}
 }
 
@@ -298,7 +298,7 @@ func (c *databaseClient) insertLastTradePrice(message BookMessage, subscription 
 	defer cancel()
 	_, insertErr := c.lastTradePrices.InsertOne(ctx, lastTradePrice)
 	if insertErr != nil {
-		log.Printf("Warning: failed to last trade price into database: %v\n", err)
+		log.Printf("Warning: failed to last trade price into database: %v", err)
 	}
 }
 
@@ -307,7 +307,7 @@ func (c *databaseClient) flushBuffer() {
 	defer cancel()
 	_, insertErr := c.priceChanges.InsertMany(ctx, c.priceChangeBuffer)
 	if insertErr != nil {
-		log.Printf("Warning: failed to insert price change into database: %v\n", insertErr)
+		log.Printf("Warning: failed to insert price change into database: %v", insertErr)
 	}
 	c.priceChangeBuffer = c.priceChangeBuffer[:0]
 }
@@ -315,7 +315,7 @@ func (c *databaseClient) flushBuffer() {
 func convertTimestampString(timestamp string) (time.Time, error) {
 	milliseconds, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil {
-		log.Printf("Warning: failed to convert timestamp in book message: %s\n", timestamp)
+		log.Printf("Warning: failed to convert timestamp in book message: %s", timestamp)
 		return time.Time{}, err
 	}
 	seconds := milliseconds / millisecondsPerSecond
@@ -332,7 +332,7 @@ func convertSide(side string) (bool, error) {
 		return false, nil
 	default:
 		err := fmt.Errorf("failed to convert side string in book message: %s", side)
-		log.Printf("Warning: %v\n", err)
+		log.Printf("Warning: %v", err)
 		return false, err
 	}
 }
