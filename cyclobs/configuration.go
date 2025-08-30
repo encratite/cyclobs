@@ -41,8 +41,7 @@ type Trigger struct {
 	Delta *SerializableDecimal `yaml:"delta"`
 	MinPrice *SerializableDecimal `yaml:"minPrice"`
 	MaxPrice *SerializableDecimal `yaml:"maxPrice"`
-	LiquidityRange *SerializableDecimal `yaml:"liquidityRange"`
-	MinLiquidity *SerializableDecimal `yaml:"minLiquidity"`
+	MinVolume *SerializableDecimal `yaml:"minVolume"`
 	LimitOffset *SerializableDecimal `yaml:"limitOffset"`
 	Size *int `yaml:"size"`
 }
@@ -129,15 +128,10 @@ func (t *Trigger) validate() {
 	if t.MinPrice.GreaterThanOrEqual(t.MaxPrice.Decimal) {
 		log.Fatalf("Min price must be less than max price")
 	}
-	liquidityRangeMin := decimalConstant("0.05")
-	liquidityRangeMax := decimalConstant("0.2")
-	if t.LiquidityRange == nil || t.LiquidityRange.LessThan(liquidityRangeMin) || t.LiquidityRange.GreaterThan(liquidityRangeMax) {
-		log.Fatalf("Invalid liquidity range in trigger configuration")
-	}
-	minLiquidityMin := decimal.NewFromInt(100)
-	minLiquidityMax := decimal.NewFromInt(100000)
-	if t.MinLiquidity == nil || t.MinLiquidity.LessThan(minLiquidityMin) || t.MinLiquidity.GreaterThan(minLiquidityMax) {
-		log.Fatalf("Invalid min liquidity in trigger configuration")
+	minVolumeMin := decimal.NewFromInt(1000)
+	minVolumeMax := decimal.NewFromInt(100000)
+	if t.MinVolume == nil || t.MinVolume.LessThan(minVolumeMin) || t.MinVolume.GreaterThan(minVolumeMax) {
+		log.Fatalf("Invalid min volume in trigger configuration")
 	}
 	limitOffsetMin := decimalConstant("0.01")
 	limitOffsetMax := decimalConstant("0.99")

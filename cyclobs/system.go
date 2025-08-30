@@ -28,7 +28,6 @@ const (
 	debugLastTradePrice = false
 	debugOrderBook = false
 	debugTrigger = true
-	debugLiquidity = true
 	bookSidePrintLimit = 5
 )
 
@@ -52,6 +51,7 @@ type marketSubscription struct {
 type priceEvent struct {
 	timestamp time.Time
 	price decimal.Decimal
+	size decimal.Decimal
 }
 
 type positionState struct {
@@ -265,14 +265,14 @@ func (s *tradingSystem) onPriceChange(message BookMessage, subscription *marketS
 
 func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription *marketSubscription) {
 	assetID := message.AssetID
-	price, err := decimal.NewFromString(message.Price)
+	price, size, err := getPriceSize(message.Price, message.Size)
 	if err != nil {
-		log.Printf("Failed to read price: \"%s\"", message.Price)
 		return
 	}
 	event := priceEvent{
 		timestamp: time.Now(),
 		price: price,
+		size: size,
 	}
 	if debugLastTradePrice {
 		log.Printf("%s: slug = %s, price = %s, size = %s, side = %s", lastTradePriceEvent, subscription.slug, message.Price, message.Size, message.Side)
@@ -375,11 +375,12 @@ func (s *marketSubscription) getMatchingTrigger() (int, Trigger) {
 			log.Printf("Warning: inconsistent timestamps in price data for %s", s.slug)
 			return invalidTriggerID, Trigger{}
 		}
+		volume := s.getVolume()
 		delta := last.price.Sub(first.price)
 		if delta.LessThan(trigger.Delta.Decimal) {
 			if debugTrigger {
-				format := "Info: delta from %s too low for trigger %d: first.timestamp = %s, first.price = %s, last.timestamp = %s, last.price = %s, delta = %s, trigger.Delta = %s"
-				log.Printf(format, s.slug, triggerID, getTimeString(first.timestamp), first.price, getTimeString(last.timestamp), last.price, delta, *trigger.Delta)
+				format := "Info: delta from %s too low for trigger %d: first.price = %s, last.price = %s, delta = %s, trigger.Delta = %s, volume = %s"
+				log.Printf(format, s.slug, triggerID, first.price, last.price, delta, *trigger.Delta, volume)
 			}
 			continue
 		}
@@ -390,57 +391,24 @@ func (s *marketSubscription) getMatchingTrigger() (int, Trigger) {
 			}
 			continue
 		}
-		bidLiquidity, askLiquidity := s.getLiquidity(last.price, trigger.LiquidityRange.Decimal)
-		if bidLiquidity.LessThan(trigger.MinLiquidity.Decimal) || askLiquidity.LessThan(trigger.MinLiquidity.Decimal) {
+		if volume.LessThan(trigger.MinVolume.Decimal) {
 			if debugTrigger {
-				format := "Info: liquidity requirements for %s were not met: bidLiquidity = %s, askLiquidity = %s, trigger.MinLiquidity = %s"
-				log.Printf(format, s.slug, bidLiquidity, askLiquidity, *trigger.MinLiquidity)
+				format := "Info: volume of %s too low for trigger %d: volume = %s, trigger.MinVolume = %s, last.price = %s, delta = %s"
+				log.Printf(format, s.slug, triggerID, volume, trigger.MinVolume, last.price, delta)
 			}
 			continue
-		}
-		valid := s.validateOrderBook()
-		if !valid {
-			return invalidTriggerID, Trigger{}
 		}
 		return triggerID, trigger
 	}
 	return invalidTriggerID, Trigger{}
 }
 
-func (s *marketSubscription) getLiquidity(lastTradePrice, liquidityRange decimal.Decimal) (decimal.Decimal, decimal.Decimal) {
-	if debugLiquidity {
-		log.Printf("getLiquidity: lastTradePrice = %s, liquidityRange = %s", lastTradePrice, liquidityRange)
+func (s *marketSubscription) getVolume() decimal.Decimal {
+	volume := decimal.Zero
+	for event := range s.prices.Iter() {
+		volume = volume.Add(event.price.Mul(event.size))
 	}
-	bidLiquidity := decimal.Zero
-	itBids := s.bids.Iterator()
-	itBids.End()
-	for itBids.Prev() {
-		priceLevel := itBids.Key().(decimal.Decimal)
-		size := itBids.Value().(decimal.Decimal)
-		priceLevelDelta := lastTradePrice.Sub(priceLevel)
-		if priceLevelDelta.GreaterThan(liquidityRange) {
-			break
-		}
-		bidLiquidity = bidLiquidity.Add(priceLevel.Mul(size))
-		if debugLiquidity {
-			log.Printf("getLiquidity: priceLevel = %s, size = %s, bidLiquidity = %s", priceLevel, size, bidLiquidity)
-		}
-	}
-	askLiquidity := decimal.Zero
-	itAsks := s.asks.Iterator()
-	for itAsks.Next() {
-		priceLevel := itAsks.Key().(decimal.Decimal)
-		size := itAsks.Value().(decimal.Decimal)
-		priceLevelDelta := priceLevel.Sub(lastTradePrice)
-		if priceLevelDelta.GreaterThan(liquidityRange) {
-			break
-		}
-		askLiquidity = askLiquidity.Add(priceLevel.Mul(size))
-		if debugLiquidity {
-			log.Printf("getLiquidity: priceLevel = %s, size = %s, askLiquidity = %s", priceLevel, size, askLiquidity)
-		}
-	}
-	return bidLiquidity, askLiquidity
+	return volume
 }
 
 func (s *marketSubscription) setTriggered(triggerID int) {

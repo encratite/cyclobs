@@ -9,13 +9,10 @@ import (
 	"os"
 	"slices"
 	"strconv"
-	"time"
 
 	"github.com/shopspring/decimal"
 	"golang.org/x/sys/windows"
 )
-
-const timestampLayout = "2006-01-02 15:04:05"
 
 func readFile(path string) []byte {
 	content, err := os.ReadFile(path)
@@ -110,8 +107,4 @@ func decimalConstant(s string) decimal.Decimal {
 		log.Fatalf("Failed to convert string \"%s\" to decimal: %v", s, err)
 	}
 	return output
-}
-
-func getTimeString(timestamp time.Time) string {
-	return timestamp.Format(timestampLayout)
 }
