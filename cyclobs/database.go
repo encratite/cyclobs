@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/emirpasic/gods/maps/treemap"
-	"github.com/shopspring/decimal"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -17,7 +15,6 @@ import (
 const (
 	databaseTimeout = 5
 	millisecondsPerSecond = 1000
-	databaseBookDepth = 10
 	priceChangeBufferLimit = 250
 	marketCollection = "markets"
 	marketVolumeCollection = "market_volume"
@@ -75,8 +72,7 @@ type LastTradePrice struct {
 	Price bson.Decimal128 `bson:"price"`
 	Size bson.Decimal128 `bson:"size"`
 	Buy bool `bson:"buy"`
-	Bids []PriceLevel `bson:"bids"`
-	Asks []PriceLevel `bson:"asks"`
+	Volume bson.Decimal128 `bson:"volume"`
 }
 
 type PriceLevel struct {
@@ -282,8 +278,10 @@ func (c *databaseClient) insertLastTradePrice(message BookMessage, subscription 
 	if err != nil {
 		return
 	}
-	bids := getPriceLevels(subscription.bids, true)
-	asks := getPriceLevels(subscription.asks, false)
+	volume, err := convertVolume(subscription)
+	if err != nil {
+		return
+	}
 	lastTradePrice := LastTradePrice{
 		AssetID: message.AssetID,
 		ServerTime: serverTime,
@@ -291,8 +289,7 @@ func (c *databaseClient) insertLastTradePrice(message BookMessage, subscription 
 		Price: price,
 		Size: size,
 		Buy: buy,
-		Bids: bids,
-		Asks: asks,
+		Volume: volume,
 	}
 	ctx, cancel := getDatabaseContext()
 	defer cancel()
@@ -367,29 +364,14 @@ func convertPriceSize(price, size string) (bson.Decimal128, bson.Decimal128, err
 	return priceDecimal, sizeDecimal, nil
 }
 
-func getPriceLevels(book *treemap.Map, bids bool) []PriceLevel {
-	it := book.Iterator()
-	it.End()
-	offset := 0
-	priceLevels := []PriceLevel{}
-	for it.Prev() {
-		bidsMatch := bids && offset < databaseBookDepth
-		asksMatch := !bids && book.Size() - offset <= databaseBookDepth
-		if bidsMatch || asksMatch {
-			price := it.Key().(decimal.Decimal)
-			size := it.Value().(decimal.Decimal)
-			priceDecimal, _ := bson.ParseDecimal128(price.String())
-			sizeDecimal, _ := bson.ParseDecimal128(size.String())
-			priceLevel := PriceLevel{
-				Price: priceDecimal,
-				Size: sizeDecimal,
-			}
-			priceLevels = append(priceLevels, priceLevel)
-		}
-		offset++
+func convertVolume(subscription marketSubscription) (bson.Decimal128, error) {
+	volume := subscription.getVolume()
+	volumeDecimal, err := bson.ParseDecimal128(volume.String())
+	if err != nil {
+		log.Printf("Warning: failed to convert volume: %s", volume)
+		return bson.Decimal128{}, err
 	}
-	it = book.Iterator()
-	return priceLevels
+	return volumeDecimal, nil
 }
 
 func getDatabaseContext() (context.Context, context.CancelFunc) {
