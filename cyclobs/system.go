@@ -28,6 +28,7 @@ const (
 	debugLastTradePrice = false
 	debugOrderBook = false
 	debugTrigger = true
+	debugLiquidity = true
 	bookSidePrintLimit = 5
 )
 
@@ -407,28 +408,37 @@ func (s *marketSubscription) getMatchingTrigger() (int, Trigger) {
 }
 
 func (s *marketSubscription) getLiquidity(lastTradePrice, liquidityRange decimal.Decimal) (decimal.Decimal, decimal.Decimal) {
+	if debugLiquidity {
+		log.Printf("getLiquidity: lastTradePrice = %s, liquidityRange = %s", lastTradePrice, liquidityRange)
+	}
 	bidLiquidity := decimal.Zero
 	itBids := s.bids.Iterator()
 	itBids.End()
 	for itBids.Prev() {
 		priceLevel := itBids.Key().(decimal.Decimal)
-		size := itBids.Key().(decimal.Decimal)
+		size := itBids.Value().(decimal.Decimal)
 		priceLevelDelta := lastTradePrice.Sub(priceLevel)
 		if priceLevelDelta.GreaterThan(liquidityRange) {
 			break
 		}
 		bidLiquidity = bidLiquidity.Add(priceLevel.Mul(size))
+		if debugLiquidity {
+			log.Printf("getLiquidity: priceLevel = %s, size = %s, bidLiquidity = %s", priceLevel, size, bidLiquidity)
+		}
 	}
 	askLiquidity := decimal.Zero
 	itAsks := s.asks.Iterator()
 	for itAsks.Next() {
-		priceLevel := itBids.Key().(decimal.Decimal)
-		size := itBids.Key().(decimal.Decimal)
+		priceLevel := itAsks.Key().(decimal.Decimal)
+		size := itAsks.Value().(decimal.Decimal)
 		priceLevelDelta := priceLevel.Sub(lastTradePrice)
 		if priceLevelDelta.GreaterThan(liquidityRange) {
 			break
 		}
 		askLiquidity = askLiquidity.Add(priceLevel.Mul(size))
+		if debugLiquidity {
+			log.Printf("getLiquidity: priceLevel = %s, size = %s, askLiquidity = %s", priceLevel, size, askLiquidity)
+		}
 	}
 	return bidLiquidity, askLiquidity
 }
