@@ -1,6 +1,7 @@
 package cyclobs
 
 import (
+	"fmt"
 	"strconv"
 )
 
@@ -18,6 +19,15 @@ func getEvents(tagSlug string) ([]Event, error) {
 		return nil, err
 	}
 	return events.Data, nil
+}
+
+func getMarket(slug string) (Market, error) {
+	url := fmt.Sprintf("https://gamma-api.polymarket.com/markets/slug/%s", slug)
+	market, err := getJSON[Market](url, map[string]string{})
+	if err != nil {
+		return Market{}, err
+	}
+	return market, nil
 }
 
 func getPositions() ([]Position, error) {

@@ -23,8 +23,9 @@ const (
 	priceChangeEvent = "price_change"
 	lastTradePriceEvent = "last_trade_price"
 	debugPriceChange = false
-	debugLastTradePrice = false
+	debugLastTradePrice = true
 	debugOrderBook = false
+	debugTrigger = true
 	bookSidePrintLimit = 5
 )
 
@@ -49,7 +50,6 @@ type marketSubscription struct {
 	prices deque.Deque[priceEvent]
 	bids *treemap.Map
 	asks *treemap.Map
-	triggered bool
 }
 
 type priceEvent struct {
@@ -120,6 +120,20 @@ func (s *tradingSystem) runTriggerMode() {
 	if err != nil {
 		return
 	}
+	markets := []Market{}
+	for _, position := range positions {
+		exists := containsFunc(markets, func (m Market) bool {
+			return m.Slug == position.Slug
+		})
+		if !exists {
+			market, err := getMarket(position.Slug)
+			if err != nil {
+				return
+			}
+			markets = append(markets, market)
+		}
+	}
+	s.markets = markets
 	assetIDs := []string{}
 	for _, trigger := range configuration.Triggers {
 		slug := *trigger.Slug
@@ -272,12 +286,15 @@ func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription *mark
 }
 
 func (s *tradingSystem) processTrigger(price decimal.Decimal, subscription *marketSubscription) {
-	if subscription.triggered {
-		return
-	}
 	trigger, exists := findPointer(s.triggers, func (t triggerData) bool {
 		return t.slug == subscription.slug
 	})
+	if trigger.triggered {
+		if debugTrigger {
+			log.Printf("Trigger for \"%s\" had already been triggered", trigger.slug)
+		}
+		return
+	}
 	if !exists {
 		log.Printf("Warning: received a book message without a matching trigger: subscription.slug = %s", subscription.slug)
 	}
@@ -287,6 +304,7 @@ func (s *tradingSystem) processTrigger(price decimal.Decimal, subscription *mark
 		err := postOrder(trigger.slug, trigger.assetID, model.SELL, trigger.size, limit, subscription.negRisk, 0)
 		if err != nil {
 			log.Printf("Failed to execute order: %v", err)
+			return
 		}
 		trigger.triggered = true
 	}
@@ -296,6 +314,11 @@ func (s *tradingSystem) processTrigger(price decimal.Decimal, subscription *mark
 	} else if price.LessThanOrEqual(definition.StopLoss.Decimal) {
 		log.Printf("Stop-loss has been triggered for \"%s\" at %s", trigger.slug, price)
 		sellPosition(definition.StopLoss.Decimal)
+	} else {
+		if debugTrigger {
+			format := "No action required: takeProfit = %s, takeProfitLimit = %s, stopLoss = %s, stopLossLimit = %s, size = %s"
+			log.Printf(format, takeProfit, definition.TakeProfitLimit, definition.StopLoss, definition.StopLossLimit, trigger.size)
+		}
 	}
 }
 
@@ -328,7 +351,6 @@ func (s *tradingSystem) getSubscription(assetID string) (marketSubscription, boo
 			prices: deque.Deque[priceEvent]{},
 			asks: treemap.NewWith(decimalComparator),
 			bids: treemap.NewWith(decimalComparator),
-			triggered: false,
 		}
 	}
 	return subscription, true
