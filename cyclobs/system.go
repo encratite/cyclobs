@@ -288,11 +288,11 @@ func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription *mark
 	}
 	subscription.add(event)
 	if s.mode == systemTriggerMode {
-		s.processTrigger(price, subscription)
+		s.processTrigger(price, message.Side, subscription)
 	}
 }
 
-func (s *tradingSystem) processTrigger(price decimal.Decimal, subscription *marketSubscription) {
+func (s *tradingSystem) processTrigger(price decimal.Decimal, side string, subscription *marketSubscription) {
 	trigger, exists := findPointer(s.triggers, func (t triggerData) bool {
 		return t.slug == subscription.slug
 	})
@@ -315,16 +315,16 @@ func (s *tradingSystem) processTrigger(price decimal.Decimal, subscription *mark
 		}
 		trigger.triggered = true
 	}
-	if takeProfit != nil && price.GreaterThanOrEqual(takeProfit.Decimal) {
+	if takeProfit != nil && price.GreaterThanOrEqual(takeProfit.Decimal) && side == sideBuy {
 		log.Printf("Take profit has been triggered for \"%s\" at %s", trigger.slug, price)
 		sellPosition(definition.TakeProfitLimit.Decimal)
-	} else if price.LessThanOrEqual(definition.StopLoss.Decimal) {
+	} else if price.LessThanOrEqual(definition.StopLoss.Decimal) && side == sideSell {
 		log.Printf("Stop-loss has been triggered for \"%s\" at %s", trigger.slug, price)
 		sellPosition(definition.StopLoss.Decimal)
 	} else {
 		if debugTrigger {
-			format := "No action required: takeProfit = %s, takeProfitLimit = %s, stopLoss = %s, stopLossLimit = %s, size = %s"
-			log.Printf(format, takeProfit, definition.TakeProfitLimit, definition.StopLoss, definition.StopLossLimit, trigger.size)
+			format := "No action required: takeProfit = %s, takeProfitLimit = %s, stopLoss = %s, stopLossLimit = %s, size = %s, price = %s, side = %s"
+			log.Printf(format, takeProfit, definition.TakeProfitLimit, definition.StopLoss, definition.StopLossLimit, trigger.size, price, side)
 		}
 	}
 }
