@@ -44,7 +44,6 @@ func subscribeToMarkets(assetIDs []string, callback func ([]BookMessage)) error 
 			time.Sleep(10 * time.Second)
 		}
 	}()
-	log.Printf("Subscribed to %d markets", len(assetIDs))
 	for {
 		_, message, err := connection.ReadMessage()
 		if err != nil {

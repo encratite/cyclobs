@@ -90,6 +90,9 @@ func runMode(mode tradingSystemMode) {
 func (s *tradingSystem) run() {
 	defer s.database.close()
 	s.interrupt()
+	if s.mode == systemTriggerMode && *configuration.Live {
+		log.Printf("Warning: system is LIVE and has permission to post orders")
+	}
 	for {
 		switch s.mode {
 		case systemDataMode:
@@ -112,6 +115,7 @@ func (s *tradingSystem) runDataMode() {
 	s.markets = markets
 	assetIDs := getAssetIDs(markets)
 	s.database.insertMarkets(markets, assetIDs, eventSlugMap)
+	log.Printf("Subscribed to %d markets", len(assetIDs))
 	s.subscribe(assetIDs)
 }
 
@@ -153,6 +157,9 @@ func (s *tradingSystem) runTriggerMode() {
 			triggered: false,
 		}
 		s.triggers = append(s.triggers, data)
+	}
+	for _, market := range s.markets {
+		log.Printf("Subscribed to market \"%s\"", market.Slug)
 	}
 	s.subscribe(assetIDs)
 }
