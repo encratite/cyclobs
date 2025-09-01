@@ -8,13 +8,12 @@ import (
 	"os/signal"
 	"regexp"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/emirpasic/gods/maps/treemap"
 	"github.com/gammazero/deque"
-	"github.com/shopspring/decimal"
 	"github.com/polymarket/go-order-utils/pkg/model"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -23,20 +22,25 @@ const (
 	bookEvent = "book"
 	priceChangeEvent = "price_change"
 	lastTradePriceEvent = "last_trade_price"
-	invalidTriggerID = -1
 	debugPriceChange = false
 	debugLastTradePrice = false
 	debugOrderBook = false
-	debugTrigger = true
 	bookSidePrintLimit = 5
 )
 
+type tradingSystemMode int
+
+const (
+	systemDataMode tradingSystemMode = iota
+	systemTriggerMode
+)
+
 type tradingSystem struct {
+	mode tradingSystemMode
 	markets []Market
 	subscriptions map[string]marketSubscription
-	positions int
-	mutex sync.Mutex
 	database databaseClient
+	triggers []triggerData
 }
 
 type marketSubscription struct {
@@ -45,7 +49,7 @@ type marketSubscription struct {
 	prices deque.Deque[priceEvent]
 	bids *treemap.Map
 	asks *treemap.Map
-	triggered []int
+	triggered bool
 }
 
 type priceEvent struct {
@@ -54,48 +58,99 @@ type priceEvent struct {
 	size decimal.Decimal
 }
 
-type positionState struct {
-	size float64
-	added time.Time
+type triggerData struct {
+	slug string
+	assetID string
+	size decimal.Decimal
+	trigger Trigger
+	triggered bool
 }
 
-func RunSystem() {
+func DataMode() {
+	runMode(systemDataMode)
+}
+
+func TriggerMode() {
+	runMode(systemTriggerMode)
+}
+
+func runMode(mode tradingSystemMode) {
 	loadConfiguration()
 	database := newDatabaseClient()
 	system := tradingSystem{
+		mode: mode,
 		markets: []Market{},
 		subscriptions: map[string]marketSubscription{},
-		positions: 0,
 		database: database,
+		triggers: []triggerData{},
 	}
 	system.run()
 }
 
 func (s *tradingSystem) run() {
-	go s.runCleaner()
-	sleep := func () {
-		time.Sleep(time.Duration(reconnectDelay) * time.Second)
-	}
 	defer s.database.close()
 	s.interrupt()
 	for {
-		markets, eventSlugMap, err := getMarkets()
-		if err != nil {
-			sleep()
+		switch s.mode {
+		case systemDataMode:
+			s.runDataMode()
+		case systemTriggerMode:
+			s.runTriggerMode()
+		default:
+			log.Fatalf("Unknown system mode: %d", s.mode)
 		}
-		printMarketStats(markets)
-		s.markets = markets
-		assetIDs := getAssetIDs(markets)
-		s.database.insertMarkets(markets, assetIDs, eventSlugMap)
-		err = subscribeToMarkets(assetIDs, func (messages []BookMessage) {
-			for _, message := range messages {
-				s.onBookMessage(message)
-			}
+		time.Sleep(time.Duration(reconnectDelay) * time.Second)
+	}
+}
+
+func (s *tradingSystem) runDataMode() {
+	markets, eventSlugMap, err := getMarkets()
+	if err != nil {
+		return
+	}
+	printMarketStats(markets)
+	s.markets = markets
+	assetIDs := getAssetIDs(markets)
+	s.database.insertMarkets(markets, assetIDs, eventSlugMap)
+	s.subscribe(assetIDs)
+}
+
+func (s *tradingSystem) runTriggerMode() {
+	positions, err := getPositions()
+	if err != nil {
+		return
+	}
+	assetIDs := []string{}
+	for _, trigger := range configuration.Triggers {
+		slug := *trigger.Slug
+		position, exists := find(positions, func (p Position) bool {
+			return p.Slug == slug
 		})
-		if err != nil {
-			log.Printf("Subscription error: %v", err)
+		assetID := position.Asset
+		if !exists {
+			log.Fatalf("Unable to find a position matching trigger slug \"%s\"", slug)
 		}
-		sleep()
+		assetIDs = append(assetIDs, assetID)
+		data := triggerData{
+			slug: slug,
+			assetID: assetID,
+			size: decimal.NewFromFloat(position.Size),
+			trigger: trigger,
+			triggered: false,
+		}
+		s.triggers = append(s.triggers, data)
+	}
+	s.subscribe(assetIDs)
+}
+
+func (s *tradingSystem) subscribe(assetIDs []string) {
+	err := subscribeToMarkets(assetIDs, func (messages []BookMessage) {
+		for _, message := range messages {
+			s.onBookMessage(message)
+		}
+	})
+	if err != nil {
+		log.Printf("Subscription error: %v", err)
 	}
 }
 
@@ -108,72 +163,6 @@ func (s *tradingSystem) interrupt() {
 		s.database.flushBuffer()
 		os.Exit(0)
 	}()
-}
-
-func (s *tradingSystem) runCleaner() {
-	cleanerConfig := configuration.Cleaner
-	states := map[string]positionState{}
-	sleep := func() {
-		duration := time.Duration(*cleanerConfig.Interval) * time.Second
-		time.Sleep(duration)
-	}
-	for {
-		positions, err := getPositions()
-		if err != nil {
-			sleep()
-			continue
-		}
-		s.setPositions(len(positions))
-		now := time.Now()
-		positionExpiration := time.Duration(*cleanerConfig.Expiration) * time.Second
-		for _, position := range positions {
-			state, exists := states[position.Asset]
-			if !exists {
-				state = positionState{
-					size: position.Size,
-					added: now,
-				}
-				states[position.Asset] = state
-				log.Printf("Detected new position in cleaner: slug = %s, size = %.2f, added = %s", position.Slug, position.Size, now)
-				continue
-			}
-			if state.size != position.Size {
-				log.Printf("Size of position %s has changed from %.2f to %.2f, resetting expiration", position.Slug, state.size, position.Size)
-				states[position.Asset] = positionState{
-					size: position.Size,
-					added: now,
-				}
-				continue
-			}
-			age := now.Sub(state.added)
-			if age < positionExpiration {
-				continue
-			}
-			log.Printf("Position %s has expired, closing it", position.Slug)
-			size := int(position.Size)
-			decimalPrice := decimal.NewFromFloat(position.CurPrice)
-			limit := decimalPrice.Sub(cleanerConfig.LimitOffset.Decimal)
-			limitMin := decimalConstant("0.05")
-			if limit.LessThan(limitMin) {
-				limit = limitMin
-			}
-			orderExpiration := *cleanerConfig.Interval
-			postOrder(position.Slug, position.Asset, model.SELL, size, limit, position.NegativeRisk, orderExpiration)
-		}
-		sleep()
-	}
-}
-
-func (s *tradingSystem) getPositions() int {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	return s.positions
-}
-
-func (s *tradingSystem) setPositions(positions int) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	s.positions = positions
 }
 
 func (s *tradingSystem) onBookMessage(message BookMessage) {
@@ -264,7 +253,6 @@ func (s *tradingSystem) onPriceChange(message BookMessage, subscription *marketS
 }
 
 func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription *marketSubscription) {
-	assetID := message.AssetID
 	price, size, err := getPriceSize(message.Price, message.Size)
 	if err != nil {
 		return
@@ -278,19 +266,36 @@ func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription *mark
 		log.Printf("%s: slug = %s, price = %s, size = %s, side = %s", lastTradePriceEvent, subscription.slug, message.Price, message.Size, message.Side)
 	}
 	subscription.add(event)
-	if message.Side == sideBuy {
-		triggerID, trigger := subscription.getMatchingTrigger()
-		if triggerID != invalidTriggerID {
-			positions := s.getPositions()
-			if positions >= *configuration.PositionLimit {
-				log.Printf("Warning: found matching trigger but there are already %d active positions", s.positions)
-				return
-			}
-			log.Printf("Trigger %d activated for %s at %s", triggerID, subscription.slug, price)
-			orderPrice := price.Add(trigger.LimitOffset.Decimal)
-			_ = postOrder(subscription.slug, assetID, model.BUY, *trigger.Size, orderPrice, subscription.negRisk, *configuration.OrderExpiration)
-			subscription.setTriggered(triggerID)
+	if s.mode == systemTriggerMode {
+		s.processTrigger(price, subscription)
+	}
+}
+
+func (s *tradingSystem) processTrigger(price decimal.Decimal, subscription *marketSubscription) {
+	if subscription.triggered {
+		return
+	}
+	trigger, exists := findPointer(s.triggers, func (t triggerData) bool {
+		return t.slug == subscription.slug
+	})
+	if !exists {
+		log.Printf("Warning: received a book message without a matching trigger: subscription.slug = %s", subscription.slug)
+	}
+	definition := trigger.trigger
+	takeProfit := definition.TakeProfit
+	sellPosition := func (limit decimal.Decimal) {
+		err := postOrder(trigger.slug, trigger.assetID, model.SELL, trigger.size, limit, subscription.negRisk, 0)
+		if err != nil {
+			log.Printf("Failed to execute order: %v", err)
 		}
+		trigger.triggered = true
+	}
+	if takeProfit != nil && price.GreaterThanOrEqual(takeProfit.Decimal) {
+		log.Printf("Take profit has been triggered for \"%s\" at %s", trigger.slug, price)
+		sellPosition(definition.TakeProfitLimit.Decimal)
+	} else if price.LessThanOrEqual(definition.StopLoss.Decimal) {
+		log.Printf("Stop-loss has been triggered for \"%s\" at %s", trigger.slug, price)
+		sellPosition(definition.StopLoss.Decimal)
 	}
 }
 
@@ -323,7 +328,7 @@ func (s *tradingSystem) getSubscription(assetID string) (marketSubscription, boo
 			prices: deque.Deque[priceEvent]{},
 			asks: treemap.NewWith(decimalComparator),
 			bids: treemap.NewWith(decimalComparator),
-			triggered: []int{},
+			triggered: false,
 		}
 	}
 	return subscription, true
@@ -337,12 +342,7 @@ func (s *marketSubscription) add(event priceEvent) {
 		return
 	}
 	s.prices.PushBack(event)
-	timeSpans := []int{}
-	for _, trigger := range configuration.Triggers {
-		timeSpans = append(timeSpans, *trigger.TimeSpan)
-	}
-	maxTimeSpan := slices.Max(timeSpans)
-	duration := time.Duration(maxTimeSpan) * time.Second
+	duration := time.Duration(*configuration.Data.BufferTimeSpan) * time.Second
 	now := time.Now()
 	for s.prices.Len() > 0 {
 		price := s.prices.Front()
@@ -355,79 +355,12 @@ func (s *marketSubscription) add(event priceEvent) {
 	}
 }
 
-func (s *marketSubscription) getMatchingTrigger() (int, Trigger) {
-	if s.prices.Len() < 2 {
-		return invalidTriggerID, Trigger{}	
-	}
-	for triggerID, trigger := range configuration.Triggers {
-		triggered := contains(s.triggered, triggerID)
-		if triggered {
-			log.Printf("Warning: skipping trigger %d for %s because it had already been triggered for this subscription", triggerID, s.slug)
-			continue
-		}
-		first, exists := s.getFirstPrice(trigger)
-		if !exists {
-			log.Printf("Warning: no price data available for %s", s.slug)
-			return invalidTriggerID, Trigger{}
-		}
-		last := s.prices.Back()
-		if last.timestamp.Before(first.timestamp) {
-			log.Printf("Warning: inconsistent timestamps in price data for %s", s.slug)
-			return invalidTriggerID, Trigger{}
-		}
-		volume := s.getVolume()
-		delta := last.price.Sub(first.price)
-		if delta.LessThan(trigger.Delta.Decimal) {
-			if debugTrigger {
-				format := "Info: delta from %s too low for trigger %d: first.price = %s, last.price = %s, delta = %s, trigger.Delta = %s, volume = %s"
-				log.Printf(format, s.slug, triggerID, first.price, last.price, delta, *trigger.Delta, volume)
-			}
-			continue
-		}
-		if last.price.LessThan(trigger.MinPrice.Decimal) || last.price.GreaterThan(trigger.MaxPrice.Decimal) {
-			if debugTrigger {
-				format := "Info: price of %s outside of range for trigger %d: price = %s, trigger.MinPrice = %s, trigger.MaxPrice = %s"
-				log.Printf(format, s.slug, triggerID, last.price, *trigger.MinPrice, *trigger.MaxPrice)
-			}
-			continue
-		}
-		if volume.LessThan(trigger.MinVolume.Decimal) {
-			if debugTrigger {
-				format := "Info: volume of %s too low for trigger %d: volume = %s, trigger.MinVolume = %s, last.price = %s, delta = %s"
-				log.Printf(format, s.slug, triggerID, volume, trigger.MinVolume, last.price, delta)
-			}
-			continue
-		}
-		return triggerID, trigger
-	}
-	return invalidTriggerID, Trigger{}
-}
-
 func (s *marketSubscription) getVolume() decimal.Decimal {
 	volume := decimal.Zero
 	for event := range s.prices.Iter() {
 		volume = volume.Add(event.price.Mul(event.size))
 	}
 	return volume
-}
-
-func (s *marketSubscription) setTriggered(triggerID int) {
-	if contains(s.triggered, triggerID) {
-		return
-	}
-	s.triggered = append(s.triggered, triggerID)
-}
-
-func (s *marketSubscription) getFirstPrice(trigger Trigger) (priceEvent, bool) {
-	now := time.Now()
-	timeSpan := time.Duration(*trigger.TimeSpan) * time.Second
-	for price := range s.prices.Iter() {
-		age := now.Sub(price.timestamp)
-		if age < timeSpan {
-			return price, true
-		}
-	}
-	return priceEvent{}, false
 }
 
 func (s *marketSubscription) printOrderBook() {
@@ -477,7 +410,7 @@ func getPriceSize(priceString string, sizeString string) (decimal.Decimal, decim
 func getMarkets() ([]Market, map[string]string, error) {
 	markets := []Market{}
 	eventSlugMap := map[string]string{}
-	for _, tagSlug := range configuration.TagSlugs {
+	for _, tagSlug := range configuration.Data.TagSlugs {
 		events, err := getEvents(tagSlug)
 		if err != nil {
 			return nil, nil, err
@@ -491,7 +424,7 @@ func getMarkets() ([]Market, map[string]string, error) {
 					continue
 				}
 				volume := decimal.NewFromFloat(market.Volume24Hr)
-				if volume.LessThan(configuration.MinVolume.Decimal) {
+				if volume.LessThan(configuration.Data.MinVolume.Decimal) {
 					continue
 				}
 				exists := containsFunc(markets, func (m Market) bool {

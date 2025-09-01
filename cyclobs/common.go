@@ -22,15 +22,6 @@ func readFile(path string) []byte {
 	return content
 }
 
-func contains[T comparable](slice []T, value T) bool {
-	for _, x := range slice {
-		if x == value {
-			return true
-		}
-	}
-	return false
-}
-
 func containsFunc[T any](slice []T, match func (T) bool) bool {
 	for _, x := range slice {
 		if match(x) {
@@ -49,6 +40,17 @@ func find[T any](slice []T, match func (T) bool) (T, bool) {
 	} else {
 		var zeroValue T
 		return zeroValue, false
+	}
+}
+
+func findPointer[T any](slice []T, match func (T) bool) (*T, bool) {
+	index := slices.IndexFunc(slice, func (element T) bool {
+		return match(element)
+	})
+	if index >= 0 {
+		return &slice[index], true
+	} else {
+		return nil, false
 	}
 }
 
@@ -83,7 +85,7 @@ func getJSON[T any](base string, parameters map[string]string) (T, error) {
 	response, err := http.Get(encoded)
 	var empty T
 	if err != nil {
-		log.Printf("Failed to GET markets (%s): %v", encoded, err)
+		log.Printf("Failed to GET data (%s): %v", encoded, err)
 		return empty, err
 	}
 	defer response.Body.Close()

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/emirpasic/gods/maps/treemap"
+	"github.com/shopspring/decimal"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -15,6 +17,7 @@ import (
 const (
 	databaseTimeout = 5
 	millisecondsPerSecond = 1000
+	databaseBookDepth = 10
 	priceChangeBufferLimit = 250
 	marketCollection = "markets"
 	marketVolumeCollection = "market_volume"
@@ -73,6 +76,8 @@ type LastTradePrice struct {
 	Size bson.Decimal128 `bson:"size"`
 	Buy bool `bson:"buy"`
 	Volume bson.Decimal128 `bson:"volume"`
+	Bids []PriceLevel `bson:"bids"`
+	Asks []PriceLevel `bson:"asks"`
 }
 
 type PriceLevel struct {
@@ -282,6 +287,8 @@ func (c *databaseClient) insertLastTradePrice(message BookMessage, subscription 
 	if err != nil {
 		return
 	}
+	bids := getPriceLevels(subscription.bids, true)
+	asks := getPriceLevels(subscription.asks, false)
 	lastTradePrice := LastTradePrice{
 		AssetID: message.AssetID,
 		ServerTime: serverTime,
@@ -290,6 +297,8 @@ func (c *databaseClient) insertLastTradePrice(message BookMessage, subscription 
 		Size: size,
 		Buy: buy,
 		Volume: volume,
+		Bids: bids,
+		Asks: asks,
 	}
 	ctx, cancel := getDatabaseContext()
 	defer cancel()
@@ -372,6 +381,31 @@ func convertVolume(subscription marketSubscription) (bson.Decimal128, error) {
 		return bson.Decimal128{}, err
 	}
 	return volumeDecimal, nil
+}
+
+func getPriceLevels(book *treemap.Map, bids bool) []PriceLevel {
+	it := book.Iterator()
+	it.End()
+	offset := 0
+	priceLevels := []PriceLevel{}
+	for it.Prev() {
+		bidsMatch := bids && offset < databaseBookDepth
+		asksMatch := !bids && book.Size() - offset <= databaseBookDepth
+		if bidsMatch || asksMatch {
+			price := it.Key().(decimal.Decimal)
+			size := it.Value().(decimal.Decimal)
+			priceDecimal, _ := bson.ParseDecimal128(price.String())
+			sizeDecimal, _ := bson.ParseDecimal128(size.String())
+			priceLevel := PriceLevel{
+				Price: priceDecimal,
+				Size: sizeDecimal,
+			}
+			priceLevels = append(priceLevels, priceLevel)
+		}
+		offset++
+	}
+	it = book.Iterator()
+	return priceLevels
 }
 
 func getDatabaseContext() (context.Context, context.CancelFunc) {

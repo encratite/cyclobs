@@ -64,12 +64,12 @@ type OrderResponse struct {
 	Success bool `json:"success"`
 }
 
-func postOrder(slug, tokenID string, side model.Side, size int, limit decimal.Decimal, negRisk bool, expiration int) error {
+func postOrder(slug, tokenID string, side model.Side, size decimal.Decimal, limit decimal.Decimal, negRisk bool, expiration int) error {
 	if len(tokenID) < 20 {
 		log.Fatalf("Invalid tokenID")
 	}
-	if size < 5 {
-		log.Fatalf("Invalid number of contracts: %d", size)
+	if !size.IsPositive() {
+		log.Fatalf("Invalid number of contracts: %s", size)
 	}
 	limitMin := decimalConstant("0.01")
 	if limit.LessThan(limitMin) {
@@ -86,10 +86,9 @@ func postOrder(slug, tokenID string, side model.Side, size int, limit decimal.De
 	limit = limit.Round(2)
 	bigChainId := big.NewInt(chainId)
 	orderBuilder := builder.NewExchangeOrderBuilderImpl(bigChainId, nil)
-	decimalSize := decimal.NewFromInt(int64(size))
 	decimalCentsPerDollar := decimal.NewFromInt(centsPerDollar)
-	makerAmount := decimalSize.Mul(limit).Mul(decimalCentsPerDollar).IntPart() * ticksPerCent
-	takerAmount := int64(size * centsPerDollar) * ticksPerCent
+	makerAmount := size.Mul(limit).Mul(decimalCentsPerDollar).IntPart() * ticksPerCent
+	takerAmount := size.Mul(decimalCentsPerDollar).IntPart() * ticksPerCent
 	if side == model.SELL {
 		makerSwap := takerAmount
 		takerSwap := makerAmount
@@ -97,11 +96,11 @@ func postOrder(slug, tokenID string, side model.Side, size int, limit decimal.De
 		takerAmount = takerSwap
 	}
 	format := "Posting order: slug = %s, tokenID = %s, side = %d, size = %d, limit = %s, negRisk = %t, expiration = %d, makerAmount = %d, takerAmount = %d"
-	log.Printf(format, slug, tokenID, side, size, limit, negRisk, expiration, makerAmount, takerAmount)
 	if !*configuration.Live {
 		log.Printf("Not posting %s order for %s, system is not live", sideString, slug)
 		return nil
 	}
+	log.Printf(format, slug, tokenID, side, size, limit, negRisk, expiration, makerAmount, takerAmount)
 	var expirationString string
 	if expiration > 0 {
 		expirationDuration := time.Duration(expiration) * time.Second
