@@ -89,6 +89,7 @@ type PriceLevel struct {
 
 type PriceHistoryBSON struct {
 	Slug string `bson:"slug"`
+	NegRisk bool `bson:"negRisk"`
 	Closed bool `bson:"closed"`
 	Outcome *bool `bson:"outcome"`
 	Tags []string `bson:"tags"`

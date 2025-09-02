@@ -22,7 +22,7 @@ func Analyze() {
 	log.Printf("Samples: %d", len(historyData))
 	outcomeMap := map[string]outcomeCount{}
 	for _, history := range historyData {
-		if !history.Closed || history.Outcome == nil {
+		if !history.Closed || history.Outcome == nil || history.NegRisk {
 			continue
 		}
 		for _, tag := range history.Tags {

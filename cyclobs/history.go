@@ -68,6 +68,7 @@ func History() {
 			outcome := getMarketOutcome(market)
 			dbHistory := PriceHistoryBSON{
 				Slug: slug,
+				NegRisk: market.NegRisk,
 				Closed: market.Closed,
 				Outcome: outcome,
 				Tags: tagSlugs,
