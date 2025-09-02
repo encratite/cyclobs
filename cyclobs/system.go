@@ -107,7 +107,7 @@ func (s *tradingSystem) run() {
 }
 
 func (s *tradingSystem) runDataMode() {
-	markets, eventSlugMap, err := getMarkets()
+	markets, eventSlugMap, err := getEventMarkets()
 	if err != nil {
 		return
 	}
@@ -438,7 +438,7 @@ func getPriceSize(priceString string, sizeString string) (decimal.Decimal, decim
 	return price, size, nil
 }
 
-func getMarkets() ([]Market, map[string]string, error) {
+func getEventMarkets() ([]Market, map[string]string, error) {
 	markets := []Market{}
 	eventSlugMap := map[string]string{}
 	for _, tagSlug := range configuration.Data.TagSlugs {
@@ -502,7 +502,7 @@ func getAssetIDs(markets []Market) []string {
 
 var clobTokenIdPattern = regexp.MustCompile(`\d+`)
 
-func getCLOBTokenIds(market Market) []string {
+func getCLOBTokenIDs(market Market) []string {
 	tokenIds := []string{}
 	matches := clobTokenIdPattern.FindAllStringSubmatch(market.CLOBTokenIDs, -1)
 	for _, match := range matches {
@@ -513,7 +513,7 @@ func getCLOBTokenIds(market Market) []string {
 }
 
 func getYesTokenID(market Market) (string, bool) {
-	tokenIDs := getCLOBTokenIds(market)
+	tokenIDs := getCLOBTokenIDs(market)
 	if len(tokenIDs) != 2 {
 		log.Printf("Warning: Unable to extract token ID for market %s", market.Slug)
 		return "", false

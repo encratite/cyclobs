@@ -3,6 +3,7 @@ package cyclobs
 import (
 	"fmt"
 	"strconv"
+	"time"
 )
 
 func getEvents(tagSlug string) ([]Event, error) {
@@ -21,6 +22,15 @@ func getEvents(tagSlug string) ([]Event, error) {
 	return events.Data, nil
 }
 
+func getEventTags(id int) ([]EventTag, error) {
+	url := fmt.Sprintf("https://gamma-api.polymarket.com/events/%d/tags", id)
+	tags, err := getJSON[[]EventTag](url, map[string]string{})
+	if err != nil {
+		return []EventTag{}, err
+	}
+	return tags, nil
+}
+
 func getMarket(slug string) (Market, error) {
 	url := fmt.Sprintf("https://gamma-api.polymarket.com/markets/slug/%s", slug)
 	market, err := getJSON[Market](url, map[string]string{})
@@ -28,6 +38,22 @@ func getMarket(slug string) (Market, error) {
 		return Market{}, err
 	}
 	return market, nil
+}
+
+func getMarkets(offset, limit int, order, startDateMin string) ([]Market, error) {
+	url := "https://gamma-api.polymarket.com/markets"
+	parameters := map[string]string{
+		"offset": intToString(int64(offset)),
+		"limit": intToString(int64(limit)),
+		"order": order,
+		"ascending": "false",
+		"start_date_min": startDateMin,
+	}
+	markets, err := getJSON[[]Market](url, parameters)
+	if err != nil {
+		return []Market{}, err
+	}
+	return markets, nil
 }
 
 func getPositions() ([]Position, error) {
@@ -40,4 +66,19 @@ func getPositions() ([]Position, error) {
 		return nil, err
 	}
 	return positions, nil
+}
+
+func getPriceHistory(market string, start time.Time) (PriceHistory, error) {
+	unixTimestamp := start.Unix()
+	url := "https://clob.polymarket.com/prices-history"
+	parameters := map[string]string{
+		"market": market,
+		"startTs": intToString(unixTimestamp),
+		"fidelity": "60",
+	}
+	history, err := getJSON[PriceHistory](url, parameters)
+	if err != nil {
+		return PriceHistory{}, err
+	}
+	return history, nil
 }

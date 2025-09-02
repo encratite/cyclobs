@@ -11,7 +11,7 @@ type Pagination struct {
 }
 
 type Event struct {
-	Id string `json:"id"`
+	ID string `json:"id"`
 	Ticker string `json:"ticker"`
 	Slug string `json:"slug"`
 	Title string `json:"title"`
@@ -106,6 +106,7 @@ type Market struct {
 	LiquidityCLOB float64 `json:"liquidityClob"`
 	AcceptingOrders bool `json:"acceptingOrders"`
 	NegRisk bool `json:"negRisk"`
+	Events []Event `json:"events"`
 	NegRiskMarketID string `json:"negRiskMarketID"`
 	NegRiskRequestID string `json:"negRiskRequestID"`
 	Ready bool `json:"ready"`
@@ -228,4 +229,25 @@ type Position struct {
 	OppositeAsset string `json:"oppositeAsset"`
 	EndDate string `json:"endDate"`
 	NegativeRisk bool `json:"negativeRisk"`
+}
+
+type PriceHistory struct {
+	History []PriceHistorySample `json:"history"`
+}
+
+type PriceHistorySample struct {
+	Time int `json:"t"`
+	Price float64 `json:"p"`
+}
+
+type EventTag struct {
+	ID string `json:"id"`
+	Label string `json:"label"`
+	Slug string `json:"slug"`
+	ForceShow bool `json:"forceShow"`
+	PublishedAt string `json:"publishedAt"`
+	CreatedBy int `json:"createdBy"`
+	UpdatedBy int `json:"updatedBy"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
 }

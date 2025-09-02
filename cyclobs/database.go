@@ -24,6 +24,7 @@ const (
 	bookEventCollection = "book_events"
 	priceChangeCollection = "price_changes"
 	lastTradePriceCollection = "last_trade_prices"
+	historyCollection = "history"
 )
 
 type databaseClient struct {
@@ -34,6 +35,7 @@ type databaseClient struct {
 	bookEvents *mongo.Collection
 	priceChanges *mongo.Collection
 	lastTradePrices *mongo.Collection
+	history *mongo.Collection
 	priceChangeBuffer []PriceChangeBSON
 }
 
@@ -85,6 +87,18 @@ type PriceLevel struct {
 	Size bson.Decimal128 `bson:"size"`
 }
 
+type PriceHistoryBSON struct {
+	Slug string `bson:"slug"`
+	Outcome bool `bson:"outcome"`
+	Tags []string `bson:"tags"`
+	History []PriceHistorySampleBSON `bson:"history"`
+}
+
+type PriceHistorySampleBSON struct {
+	Timestamp time.Time `bson:"timestamp"`
+	Price float64 `bson:"price"`
+}
+
 func newDatabaseClient() databaseClient {
 	clientOptions := options.Client().ApplyURI(*configuration.Database.URI)
 	client, err := mongo.Connect(clientOptions)
@@ -97,6 +111,7 @@ func newDatabaseClient() databaseClient {
 	bookEvents := database.Collection(bookEventCollection)
 	priceChanges := database.Collection(priceChangeCollection)
 	lastTradePrices := database.Collection(lastTradePriceCollection)
+	history := database.Collection(historyCollection)
 	dbClient := databaseClient{
 		client: client,
 		database: database,
@@ -105,6 +120,7 @@ func newDatabaseClient() databaseClient {
 		bookEvents: bookEvents,
 		priceChanges: priceChanges,
 		lastTradePrices: lastTradePrices,
+		history: history,
 		priceChangeBuffer: []PriceChangeBSON{},
 	}
 	dbClient.createIndexes()
@@ -114,6 +130,7 @@ func newDatabaseClient() databaseClient {
 func (c *databaseClient) createIndexes() {	
 	c.createMarketIndexes()
 	c.createChannelIndexes()
+	c.createOtherIndexes()
 }
 
 func (c *databaseClient) createMarketIndexes() {
@@ -155,6 +172,17 @@ func (c *databaseClient) createChannelIndexes() {
 	for _, collection := range collections {
 		createIndex(collection, indexModel)
 	}
+}
+
+func (c *databaseClient) createOtherIndexes() {
+	slugKey := bson.D{
+		{Key: "slug", Value: 1},
+	}
+	historySlugIndex := mongo.IndexModel{
+		Keys: slugKey,
+		Options: options.Index().SetUnique(true),
+	}
+	createIndex(c.history, historySlugIndex)
 }
 
 func (c *databaseClient) close() {
@@ -304,7 +332,37 @@ func (c *databaseClient) insertLastTradePrice(message BookMessage, subscription 
 	defer cancel()
 	_, insertErr := c.lastTradePrices.InsertOne(ctx, lastTradePrice)
 	if insertErr != nil {
-		log.Printf("Warning: failed to last trade price into database: %v", err)
+		log.Printf("Warning: failed to insert last trade price into database: %v", err)
+	}
+}
+
+func (c *databaseClient) priceHistoryExists(slug string) bool {
+	filter := bson.M{
+		"slug": slug,
+	}
+	projection := bson.M{
+		"_id": 1,
+	}
+	opts := options.FindOne().SetProjection(projection)
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	err := c.history.FindOne(ctx, filter, opts).Err()
+	if err == mongo.ErrNoDocuments {
+		return false
+	} else if err != nil {
+		log.Printf("Failed to determine if price history exists: %v", err)
+		return true
+	} else {
+		return true
+	}
+}
+
+func (c *databaseClient) insertPriceHistory(history PriceHistoryBSON) {
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	_, err := c.history.InsertOne(ctx, history)
+	if err != nil {
+		log.Printf("Warning: failed to insert price history into database: %v", err)
 	}
 }
 

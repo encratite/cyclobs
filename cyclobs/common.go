@@ -98,6 +98,7 @@ func getJSON[T any](base string, parameters map[string]string) (T, error) {
 	err = json.Unmarshal(body, &output)
 	if err != nil {
 		log.Printf("Failed to parse JSON data (%s): %v", encoded, err)
+		log.Print(string(body))
 		return empty, err
 	}
 	return output, nil
