@@ -89,7 +89,8 @@ type PriceLevel struct {
 
 type PriceHistoryBSON struct {
 	Slug string `bson:"slug"`
-	Outcome bool `bson:"outcome"`
+	Closed bool `bson:"closed"`
+	Outcome *bool `bson:"outcome"`
 	Tags []string `bson:"tags"`
 	History []PriceHistorySampleBSON `bson:"history"`
 }
@@ -364,6 +365,21 @@ func (c *databaseClient) insertPriceHistory(history PriceHistoryBSON) {
 	if err != nil {
 		log.Printf("Warning: failed to insert price history into database: %v", err)
 	}
+}
+
+func (c *databaseClient) getPriceHistoryData() []PriceHistoryBSON {
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	cursor, err := c.history.Find(ctx, bson.M{})
+	if err != nil {
+		log.Fatalf("Failed to read price history data: %v", err)
+	}
+	defer cursor.Close(ctx)
+	var historyData []PriceHistoryBSON
+	if err := cursor.All(ctx, &historyData); err != nil {
+		log.Fatalf("Failed to iterate over cursor: %v", err)
+	}
+	return historyData
 }
 
 func (c *databaseClient) flushBuffer() {
