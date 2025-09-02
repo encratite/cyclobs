@@ -90,7 +90,7 @@ func runMode(mode tradingSystemMode) {
 func (s *tradingSystem) run() {
 	defer s.database.close()
 	s.interrupt()
-	if s.mode == systemTriggerMode && *configuration.Live {
+	if s.mode == systemTriggerMode && *configuration.Trigger.Live {
 		log.Printf("Warning: system is LIVE and has permission to post orders")
 	}
 	for {
@@ -139,7 +139,7 @@ func (s *tradingSystem) runTriggerMode() {
 	}
 	s.markets = markets
 	assetIDs := []string{}
-	for _, trigger := range configuration.Triggers {
+	for _, trigger := range configuration.Trigger.Triggers {
 		slug := *trigger.Slug
 		position, exists := find(positions, func (p Position) bool {
 			return p.Slug == slug
@@ -200,7 +200,9 @@ func (s *tradingSystem) onBookMessage(message BookMessage) {
 	case lastTradePriceEvent:
 		s.onLastTradePrice(message, &subscription)
 	}
-	s.database.insertBookMessage(message, subscription)
+	if s.mode == systemDataMode || (s.mode == systemTriggerMode && *configuration.Trigger.RecordData) {
+		s.database.insertBookMessage(message, subscription)
+	}
 	_ = subscription.validateOrderBook()
 	s.subscriptions[key] = subscription
 }

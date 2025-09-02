@@ -13,8 +13,7 @@ type Configuration struct {
 	Credentials Credentials `yaml:"credentials"`
 	Data DataModeConfiguration `yaml:"data"`
 	Database DatabaseConfiguration `yaml:"database"`
-	Live *bool `yaml:"live"`
-	Triggers []Trigger `yaml:"triggers"`
+	Trigger TriggerModeConfiguration `yaml:"trigger"`
 }
 
 type Credentials struct {
@@ -30,6 +29,12 @@ type DataModeConfiguration struct {
 	TagSlugs []string `yaml:"tagSlugs"`
 	MinVolume *SerializableDecimal `yaml:"minVolume"`
 	BufferTimeSpan *int `yaml:"bufferTimeSpan"`
+}
+
+type TriggerModeConfiguration struct {
+	Live *bool `yaml:"live"`
+	RecordData *bool `yaml:"recordData"`
+	Triggers []Trigger `yaml:"triggers"`
 }
 
 type Trigger struct {
@@ -67,12 +72,7 @@ func loadConfiguration() {
 func (c *Configuration) validate() {
 	c.Data.validate()
 	c.Database.validate()
-	if c.Live == nil {
-		log.Fatalf("Live flag missing from configuration")
-	}
-	for _, trigger := range c.Triggers {
-		trigger.validate()
-	}
+	c.Trigger.validate()
 }
 
 func (c *DataModeConfiguration) validate() {
@@ -85,6 +85,18 @@ func (c *DataModeConfiguration) validate() {
 	}
 	if c.BufferTimeSpan == nil || *c.BufferTimeSpan < 3600 {
 		log.Fatalf("Invalid buffer time span in data mode configuration")
+	}
+}
+
+func (c *TriggerModeConfiguration) validate() {
+	if c.Live == nil {
+		log.Fatalf("Live flag missing from configuration")
+	}
+	if c.RecordData == nil {
+		log.Fatalf("Record data flag missing from configuration")
+	}
+	for _, trigger := range c.Triggers {
+		trigger.validate()
 	}
 }
 

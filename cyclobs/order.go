@@ -96,7 +96,7 @@ func postOrder(slug, tokenID string, side model.Side, size decimal.Decimal, limi
 		takerAmount = takerSwap
 	}
 	format := "Posting order: slug = %s, tokenID = %s, side = %d, size = %d, limit = %s, negRisk = %t, expiration = %d, makerAmount = %d, takerAmount = %d"
-	if !*configuration.Live {
+	if !*configuration.Trigger.Live {
 		log.Printf("Not posting %s order for %s, system is not live", sideString, slug)
 		return nil
 	}
