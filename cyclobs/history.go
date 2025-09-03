@@ -7,10 +7,10 @@ import (
 )
 
 const (
-	historyPageLimit = 100
-	historyMaxOffset = 2000
+	historyPageLimit = 500
+	historyMaxOffset = 10000
 	historyOrder = "volumeNum"
-	historyStartDateMin = "2025-01-01"
+	historyStartDateMin = "2023-01-01"
 )
 
 func History() {
@@ -49,9 +49,14 @@ func History() {
 			for _, eventTag := range eventTags {
 				tagSlugs = append(tagSlugs, eventTag.Slug)
 			}
-			startDate, err := time.Parse(time.RFC3339, market.StartDate)
+			startDate, err := parseISOTime(market.StartDate)
 			if err != nil {
-				log.Fatalf("Failed to parse timestamp: %v", err)
+				continue
+			}
+			var endDatePointer *time.Time = nil
+			endDate, endDateErr := parseISOTime(market.EndDate)
+			if endDateErr != nil {
+				endDatePointer = &endDate
 			}
 			tokenIDs := getCLOBTokenIDs(market)
 			yesID := tokenIDs[0]
@@ -70,6 +75,9 @@ func History() {
 				Slug: slug,
 				NegRisk: market.NegRisk,
 				Closed: market.Closed,
+				StartDate: startDate,
+				EndDate: endDatePointer,
+				Volume: market.VolumeNum,
 				Outcome: outcome,
 				Tags: tagSlugs,
 				History: dbSamples,

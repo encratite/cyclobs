@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	databaseTimeout = 5
+	databaseTimeout = 10
 	millisecondsPerSecond = 1000
 	databaseBookDepth = 10
 	priceChangeBufferLimit = 250
@@ -91,6 +91,9 @@ type PriceHistoryBSON struct {
 	Slug string `bson:"slug"`
 	NegRisk bool `bson:"negRisk"`
 	Closed bool `bson:"closed"`
+	StartDate time.Time `bson:"startDate"`
+	EndDate *time.Time `bson:"EndDate"`
+	Volume float64 `bson:"volume"`
 	Outcome *bool `bson:"outcome"`
 	Tags []string `bson:"tags"`
 	History []PriceHistorySampleBSON `bson:"history"`

@@ -9,10 +9,16 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"golang.org/x/sys/windows"
 )
+
+type keyValuePair[K comparable, V any] struct {
+	key K
+	value V
+}
 
 func readFile(path string) []byte {
 	content, err := os.ReadFile(path)
@@ -71,6 +77,14 @@ func intToString(integer int64) string {
 	return strconv.FormatInt(integer, 10)
 }
 
+func parseISOTime(timeString string) (time.Time, error) {
+	timestamp, err := time.Parse(time.RFC3339, timeString)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return timestamp, nil
+}
+
 func getJSON[T any](base string, parameters map[string]string) (T, error) {
 	u, err := url.Parse(base)
 	if err != nil {
@@ -110,4 +124,23 @@ func decimalConstant(s string) decimal.Decimal {
 		log.Fatalf("Failed to convert string \"%s\" to decimal: %v", s, err)
 	}
 	return output
+}
+
+func sortMap[K comparable, V any](m map[K]V, compare func (K, K) int) []V {
+	pairs := []keyValuePair[K, V]{}
+	for key, value := range m {
+		pair := keyValuePair[K, V]{
+			key: key,
+			value: value,
+		}
+		pairs = append(pairs, pair)
+	}	
+	slices.SortFunc(pairs, func (a, b keyValuePair[K, V]) int {
+		return compare(a.key, b.key)
+	})
+	values := []V{}
+	for _, pair := range pairs {
+		values = append(values, pair.value)
+	}
+	return values
 }
