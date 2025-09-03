@@ -144,3 +144,11 @@ func sortMap[K comparable, V any](m map[K]V, compare func (K, K) int) []V {
 	}
 	return values
 }
+
+func getDate(timestamp time.Time) time.Time {
+	return time.Date(timestamp.Year(), timestamp.Month(), timestamp.Day(), 0, 0, 0, 0, timestamp.Location())
+}
+
+func getReturns(newValue, oldValue float64) float64 {
+	return newValue / oldValue - 1.0
+}

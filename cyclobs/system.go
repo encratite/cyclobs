@@ -322,7 +322,7 @@ func (s *tradingSystem) processTrigger(price decimal.Decimal, side string, subsc
 		sellPosition(definition.TakeProfitLimit.Decimal)
 	} else if price.LessThanOrEqual(definition.StopLoss.Decimal) && side == sideSell {
 		log.Printf("Stop-loss has been triggered for \"%s\" at %s", trigger.slug, price)
-		sellPosition(definition.StopLoss.Decimal)
+		sellPosition(definition.StopLossLimit.Decimal)
 	} else {
 		if debugTrigger {
 			format := "No action required: takeProfit = %s, takeProfitLimit = %s, stopLoss = %s, stopLossLimit = %s, size = %s, price = %s, side = %s"

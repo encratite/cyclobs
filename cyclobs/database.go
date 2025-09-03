@@ -387,6 +387,9 @@ func (c *databaseClient) getPriceHistoryData() []PriceHistoryBSON {
 }
 
 func (c *databaseClient) flushBuffer() {
+	if len(c.priceChangeBuffer) == 0 {
+		return
+	}
 	ctx, cancel := getDatabaseContext()
 	defer cancel()
 	_, insertErr := c.priceChanges.InsertMany(ctx, c.priceChangeBuffer)

@@ -12,6 +12,10 @@ import (
 const (
 	hoursPerDay = 24
 	outcomeDistributionBins = 10
+	seasonalityPriceMin = 0.01
+	seasonalityPriceMax = 0.98
+	seasonalityMinYear = 2000
+	minHistorySize = 10
 )
 
 type outcomeCount struct {
@@ -27,6 +31,22 @@ type yearMonth struct {
 	month time.Month
 }
 
+type hourReturns struct {
+	hour int
+	returns []float64
+}
+
+type weekdayReturns struct {
+	day time.Weekday
+	returns []float64
+}
+
+type priceRangeReturns struct {
+	rangeMin float64
+	rangeMax float64
+	deltas []float64
+}
+
 func Analyze() {
 	loadConfiguration()
 	database := newDatabaseClient()
@@ -34,7 +54,9 @@ func Analyze() {
 	historyData := database.getPriceHistoryData()
 	// analyzeCategories(historyData)
 	// analyzeCategories(historyData)
-	analyzeMonthlyDistribution(true, 0, 2, 0.4, 0.7, historyData)
+	// analyzeMonthlyDistribution(false, 0, 1, 0.4, 0.6, historyData)
+	// analyzeHours(historyData)
+	analyzePriceRanges(historyData)
 }
 
 func analyzeOutcomeDistributions(historyData []PriceHistoryBSON) {
@@ -154,6 +176,174 @@ func analyzeMonthlyDistribution(negRisk bool, days, hours int, priceMin, priceMa
 	}
 }
 
+func analyzeHours(historyData []PriceHistoryBSON) {
+	negRisks := []bool{
+		false,
+		true,
+	}
+	samplingHours := []int{
+		8, 12, 15, 18, 20,
+	}
+	for _, negRisk := range negRisks {
+		for _, samplingHour := range samplingHours {
+			analyzeWeekdaySeasonality(negRisk, samplingHour, historyData)
+		}
+	}
+}
+
+func analyzeHourSeasonality(negRisk bool, historyData []PriceHistoryBSON) {
+	hourMap := map[int]hourReturns{}
+	for _, history := range historyData {
+		if history.NegRisk != negRisk {
+			continue
+		}
+		for i := range history.History {
+			if i == 0 {
+				continue
+			}
+			sample1 := history.History[i - 1]
+			sample2 := history.History[i]
+			price1 := sample1.Price
+			price2 := sample2.Price
+			if !includePrices(price1, price2) {
+				continue
+			}
+			returns := getReturns(price2, price1)
+			key := sample2.Timestamp.Hour()
+			entry, exists := hourMap[key]
+			if !exists {
+				entry = hourReturns{
+					hour: key,
+					returns: []float64{},
+				}
+			}
+			entry.returns = append(entry.returns, returns)
+			hourMap[key] = entry
+		}
+	}
+	entries := sortMap(hourMap, cmp.Compare)
+	fmt.Printf("Seasonality by hour (negRisk = %t)\n", negRisk)
+	for _, entry := range entries {
+		meanReturn := stat.Mean(entry.returns, nil)
+		fmt.Printf("\t%dh: %.2f%%\n", entry.hour, meanReturn * 100)
+	}
+	fmt.Printf("\n")
+}
+
+func analyzeWeekdaySeasonality(negRisk bool, samplingHour int, historyData []PriceHistoryBSON) {
+	weekdayMap := map[time.Weekday]weekdayReturns{}
+	for _, history := range historyData {
+		if history.NegRisk != negRisk || len(history.History) < minHistorySize {
+			continue
+		}
+		samples := getSamplingHours(negRisk, samplingHour, history)
+		for i, sample := range samples {
+			if i == 0 {
+				continue
+			}
+			previousSample := samples[i - 1]
+			timestamp := sample.Timestamp
+			date := getDate(timestamp)
+			if date.Year() < seasonalityMinYear {
+				continue
+			}
+			key := sample.Timestamp.Weekday()
+			price1 := previousSample.Price
+			price2 := sample.Price
+			if !includePrices(price1, price2) {
+				continue
+			}
+			returns := getReturns(price2, price1)
+			entry, exists := weekdayMap[key]
+			if !exists {
+				entry = weekdayReturns{
+					day: key,
+					returns: []float64{},
+				}
+			}
+			entry.returns = append(entry.returns, returns)
+			weekdayMap[key] = entry
+		}
+	}
+	entries := sortMap(weekdayMap, cmp.Compare)
+	fmt.Printf("Seasonality by day (negRisk = %t, samplingHour = %dh):\n", negRisk, samplingHour)
+	for _, entry := range entries {
+		meanReturns := stat.Mean(entry.returns, nil)
+		fmt.Printf("\t%s: %.2f%%\n", entry.day, meanReturns * 100.0)
+	}
+	fmt.Printf("\n")
+}
+
+func analyzePriceRanges(historyData []PriceHistoryBSON) {
+	negRisks := []bool{
+		false,
+		true,
+	}
+	samplingHours := []int{
+		15,
+	}
+	offsets := []int{
+		2, 7, 14,
+	}
+	for _, negRisk := range negRisks {
+		for _, samplingHour := range samplingHours {
+			for _, offset := range offsets {
+				analyzePriceRangeReturns(negRisk, samplingHour, offset, historyData)
+			}
+		}
+	}
+}
+
+func analyzePriceRangeReturns(negRisk bool, samplingHour int, offset int, historyData []PriceHistoryBSON) {
+	priceRangeBins := []priceRangeReturns{
+		{
+			rangeMin: 0.0,
+			rangeMax: 0.02,
+		},
+		{
+			rangeMin: 0.02,
+			rangeMax: 0.1,
+		},
+	}
+	for i := 0.1; i < 0.9; i += 0.1 {
+		priceRangeBins = append(priceRangeBins, priceRangeReturns{
+			rangeMin: i,
+			rangeMax: i + 0.1,
+		})
+	}
+	priceRangeBins = append(priceRangeBins, priceRangeReturns{
+		rangeMin: 0.9,
+		rangeMax: 0.98,
+	})
+	priceRangeBins = append(priceRangeBins, priceRangeReturns{
+		rangeMin: 0.98,
+		rangeMax: 1.0,
+	})
+	for _, history := range historyData {
+		if history.NegRisk != negRisk || len(history.History) < minHistorySize {
+			continue
+		}
+		samples := getSamplingHours(negRisk, samplingHour, history)
+		for i := range (len(samples) - offset) {
+			price1 := samples[i].Price
+			price2 := samples[i + offset].Price
+			delta := price2 - price1
+			for j := range priceRangeBins {
+				priceRange := &priceRangeBins[j]
+				if price1 >= priceRange.rangeMin && price2 < priceRange.rangeMax {
+					priceRange.deltas = append(priceRange.deltas, delta)
+				}
+			}
+		}
+	}
+	fmt.Printf("Returns by price range (negRisk = %t, samplingHour = %dh, offset = %d):\n", negRisk, samplingHour, offset)
+	for _, priceRange := range priceRangeBins {
+		meanDelta := stat.Mean(priceRange.deltas, nil)
+		fmt.Printf("\t%.2f - %.2f: %.3f\n", priceRange.rangeMin, priceRange.rangeMax, meanDelta)
+	}
+	fmt.Printf("\n")
+}
+
 func newOutcome(description string) outcomeCount {
 	return outcomeCount{
 		description: description,
@@ -176,4 +366,33 @@ func (c *outcomeCount) processOutcome(history PriceHistoryBSON) {
 func (c *outcomeCount) getPercentage() string {
 	percentage := float64(c.yes) / float64(c.total) * 100.0
 	return fmt.Sprintf("%.1f%%", percentage)
+}
+
+func includePrices(price1, price2 float64) bool {
+	match1 := price1 >= seasonalityPriceMin && price1 <= seasonalityPriceMax
+	match2 := price2 >= seasonalityPriceMin && price2 <= seasonalityPriceMax
+	return match1 && match2
+}
+
+func getSamplingHours(negRisk bool, samplingHour int, history PriceHistoryBSON) []PriceHistorySampleBSON {
+	samples := []PriceHistorySampleBSON{}
+	previousDate := time.Time{}
+	hasPreviousSample := false
+	for _, sample := range history.History {
+		timestamp := sample.Timestamp
+		date := getDate(timestamp)
+		if date.Year() < seasonalityMinYear {
+			continue
+		}
+		if !hasPreviousSample {
+			previousDate = date
+			hasPreviousSample = true
+			continue
+		}
+		if timestamp.Hour() >= samplingHour && date != previousDate {
+			samples = append(samples, sample)
+			previousDate = date
+		}
+	}
+	return samples
 }

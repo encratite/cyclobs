@@ -95,12 +95,12 @@ func postOrder(slug, tokenID string, side model.Side, size decimal.Decimal, limi
 		makerAmount = makerSwap
 		takerAmount = takerSwap
 	}
-	format := "Posting order: slug = %s, tokenID = %s, side = %d, size = %d, limit = %s, negRisk = %t, expiration = %d, makerAmount = %d, takerAmount = %d"
 	if !*configuration.Trigger.Live {
 		log.Printf("Not posting %s order for %s, system is not live", sideString, slug)
 		return nil
 	}
-	log.Printf(format, slug, tokenID, side, size, limit, negRisk, expiration, makerAmount, takerAmount)
+	format := "Posting order: slug = %s, tokenID = %s, side = %s, size = %s, limit = %s, negRisk = %t, expiration = %d, makerAmount = %d, takerAmount = %d"
+	log.Printf(format, slug, tokenID, sideString, size, limit, negRisk, expiration, makerAmount, takerAmount)
 	var expirationString string
 	if expiration > 0 {
 		expirationDuration := time.Duration(expiration) * time.Second
