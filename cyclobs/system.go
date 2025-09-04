@@ -112,6 +112,17 @@ func (s *tradingSystem) runDataMode() {
 		return
 	}
 	printMarketStats(markets)
+	for _, eventSlug := range configuration.Data.Events {
+		event, err := getEventBySlug(eventSlug)
+		if err != nil {
+			return
+		}
+		for _, market := range event.Markets {
+			eventSlugMap[market.Slug] = event.Slug
+			markets = append(markets, market)
+		}
+		log.Printf("Loaded %d additional market(s) from event %s", len(event.Markets), eventSlug)
+	}
 	s.markets = markets
 	assetIDs := getAssetIDs(markets)
 	s.database.insertMarkets(markets, assetIDs, eventSlugMap)

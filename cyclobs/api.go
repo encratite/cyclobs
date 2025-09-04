@@ -22,6 +22,19 @@ func getEvents(tagSlug string) ([]Event, error) {
 	return events.Data, nil
 }
 
+func getEventBySlug(slug string) (Event, error) {
+	url := fmt.Sprintf("https://gamma-api.polymarket.com/events/slug/%s", slug)
+	parameters := map[string]string{
+		"include_chat": "false",
+		"include_template": "false",
+	}
+	event, err := getJSON[Event](url, parameters)
+	if err != nil {
+		return Event{}, err
+	}
+	return event, nil
+}
+
 func getEventTags(id int) ([]EventTag, error) {
 	url := fmt.Sprintf("https://gamma-api.polymarket.com/events/%d/tags", id)
 	tags, err := getJSON[[]EventTag](url, map[string]string{})
