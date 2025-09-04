@@ -81,13 +81,13 @@ func getPositions() ([]Position, error) {
 	return positions, nil
 }
 
-func getPriceHistory(market string, start time.Time) (PriceHistory, error) {
+func getPriceHistory(market string, start time.Time, fidelity int) (PriceHistory, error) {
 	unixTimestamp := start.Unix()
 	url := "https://clob.polymarket.com/prices-history"
 	parameters := map[string]string{
 		"market": market,
 		"startTs": intToString(unixTimestamp),
-		"fidelity": "60",
+		"fidelity": intToString(int64(fidelity)),
 	}
 	history, err := getJSON[PriceHistory](url, parameters)
 	if err != nil {

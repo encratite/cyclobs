@@ -14,6 +14,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const timestampLayout = "2006-01-02 15:04:05"
+
 type keyValuePair[K comparable, V any] struct {
 	key K
 	value V
@@ -137,4 +139,16 @@ func getDate(timestamp time.Time) time.Time {
 
 func getReturns(newValue, oldValue float64) float64 {
 	return newValue / oldValue - 1.0
+}
+
+func writeFile(path, data string) {
+	bytes := []byte(data)
+	err := os.WriteFile(path, bytes, 0644)
+	if err != nil {
+		log.Fatalf("Failed to write file (%s): %v", path, err)
+	}
+}
+
+func getTimeString(timestamp time.Time) string {
+	return timestamp.Format(timestampLayout)
 }

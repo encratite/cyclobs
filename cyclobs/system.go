@@ -121,7 +121,7 @@ func (s *tradingSystem) runDataMode() {
 			eventSlugMap[market.Slug] = event.Slug
 			markets = append(markets, market)
 		}
-		log.Printf("Loaded %d additional market(s) from event %s", len(event.Markets), eventSlug)
+		log.Printf("Loaded %d additional markets from event %s", len(event.Markets), eventSlug)
 	}
 	s.markets = markets
 	assetIDs := getAssetIDs(markets)
