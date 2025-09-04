@@ -236,7 +236,7 @@ func analyzeWeekdaySeasonality(negRisk bool, samplingHour int, historyData []Pri
 		if history.NegRisk != negRisk || len(history.History) < minHistorySize {
 			continue
 		}
-		samples := getSamplingHours(negRisk, samplingHour, history)
+		samples := getSamplingHours(samplingHour, history)
 		for i, sample := range samples {
 			if i == 0 {
 				continue
@@ -283,7 +283,7 @@ func analyzePriceRanges(historyData []PriceHistoryBSON) {
 		15,
 	}
 	offsets := []int{
-		2, 7, 14,
+		15, 30,
 	}
 	for _, negRisk := range negRisks {
 		for _, samplingHour := range samplingHours {
@@ -323,14 +323,14 @@ func analyzePriceRangeReturns(negRisk bool, samplingHour int, offset int, histor
 		if history.NegRisk != negRisk || len(history.History) < minHistorySize {
 			continue
 		}
-		samples := getSamplingHours(negRisk, samplingHour, history)
+		samples := getSamplingHours(samplingHour, history)
 		for i := range (len(samples) - offset) {
 			price1 := samples[i].Price
 			price2 := samples[i + offset].Price
 			delta := price2 - price1
 			for j := range priceRangeBins {
 				priceRange := &priceRangeBins[j]
-				if price1 >= priceRange.rangeMin && price2 < priceRange.rangeMax {
+				if price1 >= priceRange.rangeMin && price1 < priceRange.rangeMax {
 					priceRange.deltas = append(priceRange.deltas, delta)
 				}
 			}
@@ -374,7 +374,7 @@ func includePrices(price1, price2 float64) bool {
 	return match1 && match2
 }
 
-func getSamplingHours(negRisk bool, samplingHour int, history PriceHistoryBSON) []PriceHistorySampleBSON {
+func getSamplingHours(samplingHour int, history PriceHistoryBSON) []PriceHistorySampleBSON {
 	samples := []PriceHistorySampleBSON{}
 	previousDate := time.Time{}
 	hasPreviousSample := false

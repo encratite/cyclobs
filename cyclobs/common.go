@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
-	"golang.org/x/sys/windows"
 )
 
 type keyValuePair[K comparable, V any] struct {
@@ -58,19 +57,6 @@ func findPointer[T any](slice []T, match func (T) bool) (*T, bool) {
 	} else {
 		return nil, false
 	}
-}
-
-var (
-	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
-	procBeep = kernel32.NewProc("Beep")
-)
-
-func beep() {
-	go func() {
-		frequency := 900
-		duration := 800
-		procBeep.Call(uintptr(frequency), uintptr(duration))
-	}()
 }
 
 func intToString(integer int64) string {
