@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	databaseTimeout = 10
+	databaseTimeout = 30
 	millisecondsPerSecond = 1000
 	databaseBookDepth = 10
 	priceChangeBufferLimit = 250

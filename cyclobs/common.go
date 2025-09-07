@@ -112,7 +112,7 @@ func decimalConstant(s string) decimal.Decimal {
 	return output
 }
 
-func sortMap[K comparable, V any](m map[K]V, compare func (K, K) int) []V {
+func sortMapByKey[K comparable, V any](m map[K]V, compare func (K, K) int) []V {
 	pairs := []keyValuePair[K, V]{}
 	for key, value := range m {
 		pair := keyValuePair[K, V]{
@@ -123,6 +123,25 @@ func sortMap[K comparable, V any](m map[K]V, compare func (K, K) int) []V {
 	}	
 	slices.SortFunc(pairs, func (a, b keyValuePair[K, V]) int {
 		return compare(a.key, b.key)
+	})
+	values := []V{}
+	for _, pair := range pairs {
+		values = append(values, pair.value)
+	}
+	return values
+}
+
+func sortMapByValue[K comparable, V any](m map[K]V, compare func (V, V) int) []V {
+	pairs := []keyValuePair[K, V]{}
+	for key, value := range m {
+		pair := keyValuePair[K, V]{
+			key: key,
+			value: value,
+		}
+		pairs = append(pairs, pair)
+	}	
+	slices.SortFunc(pairs, func (a, b keyValuePair[K, V]) int {
+		return compare(a.value, b.value)
 	})
 	values := []V{}
 	for _, pair := range pairs {

@@ -3,7 +3,7 @@ package cyclobs
 import (
 	"cmp"
 	"fmt"
-	"slices"
+	"strings"
 	"time"
 
 	"gonum.org/v1/gonum/stat"
@@ -11,11 +11,13 @@ import (
 
 const (
 	hoursPerDay = 24
+	categoryLimit = 20
 	outcomeDistributionBins = 10
 	seasonalityPriceMin = 0.01
 	seasonalityPriceMax = 0.98
 	seasonalityMinYear = 2000
 	minHistorySize = 10
+	quantileCount = 5
 )
 
 type outcomeCount struct {
@@ -47,16 +49,26 @@ type priceRangeReturns struct {
 	deltas []float64
 }
 
+type categoryData struct {
+	category string
+	outcome outcomeCount
+	quantiles []quantileData
+}
+
+type quantileData struct {
+	prices []float64
+}
+
 func Analyze() {
 	loadConfiguration()
 	database := newDatabaseClient()
 	defer database.close()
 	historyData := database.getPriceHistoryData()
-	// analyzeCategories(historyData)
-	// analyzeCategories(historyData)
+	analyzeCategories(false, historyData)
+	analyzeCategories(true, historyData)
 	// analyzeMonthlyDistribution(false, 0, 1, 0.4, 0.6, historyData)
 	// analyzeHours(historyData)
-	analyzePriceRanges(historyData)
+	// analyzePriceRanges(historyData)
 }
 
 func analyzeOutcomeDistributions(historyData []PriceHistoryBSON) {
@@ -83,31 +95,60 @@ func analyzeOutcomeDistributions(historyData []PriceHistoryBSON) {
 	}
 }
 
-func analyzeCategories(historyData []PriceHistoryBSON) {
-	outcomeMap := map[string]outcomeCount{}
+func analyzeCategories(negRisk bool, historyData []PriceHistoryBSON) {
+	categoryMap := map[string]categoryData{}
 	for _, history := range historyData {
-		if !history.Closed || history.Outcome == nil || history.NegRisk {
+		if !history.Closed || history.Outcome == nil || history.NegRisk != negRisk || len(history.History) < quantileCount {
 			continue
 		}
+		quantilePrices := make([]float64, 0, quantileCount)
+		for i := range quantileCount {
+			index := 1 + i * len(history.History) / (quantileCount + 1)
+			price := history.History[index].Price
+			quantilePrices = append(quantilePrices, price)
+		}
 		for _, tag := range history.Tags {
-			count, exists := outcomeMap[tag]
+			data, exists := categoryMap[tag]
 			if !exists {
-				count = newOutcome(tag)
+				quantiles := make([]quantileData, 0, quantileCount)
+				for range quantilePrices {
+					d := quantileData{
+						prices: []float64{},
+					}
+					quantiles = append(quantiles, d)
+				}
+				data = categoryData{
+					category: tag,
+					outcome: newOutcome(tag),
+					quantiles: quantiles,
+				}
+
 			}
-			count.processOutcome(history)
-			outcomeMap[tag] = count
+			data.outcome.processOutcome(history)
+			for i, price := range quantilePrices {
+				destination := &data.quantiles[i].prices
+				*destination = append(*destination, price)
+			}
+			categoryMap[tag] = data
 		}
 	}
-	outcomes := []outcomeCount{}
-	for _, outcome := range outcomeMap {
-		outcomes = append(outcomes, outcome)
-	}
-	slices.SortFunc(outcomes, func (a, b outcomeCount) int {
-		return cmp.Compare(a.total, b.total)
+	categories := sortMapByValue(categoryMap, func (a, b categoryData) int {
+		return cmp.Compare(b.outcome.total, a.outcome.total)
 	})
-	for _, outcome := range outcomes {
-		fmt.Printf("%s: %s(%d samples)\n", outcome.description, outcome.getPercentage(), outcome.total)
+	fmt.Printf("Categories (negRisk = %t):\n", negRisk)
+	for i, category := range categories {
+		if i >= categoryLimit {
+			break
+		}
+		quantileStrings := []string{}
+		for _, quantileData := range category.quantiles {
+			meanPrice := stat.Mean(quantileData.prices, nil)
+			quantileStrings = append(quantileStrings, fmt.Sprintf("%.2f", meanPrice))
+		}
+		quantileString := strings.Join(quantileStrings, ", ")
+		fmt.Printf("\t%d. %s: %s - %s (%d samples)\n", i + 1, category.outcome.description, category.outcome.getPercentage(), quantileString, category.outcome.total)
 	}
+	fmt.Printf("\n")
 }
 
 func analyzeOutcomeDistribution(negRisk bool, days, hours int, historyData []PriceHistoryBSON) {
@@ -128,7 +169,7 @@ func analyzeOutcomeDistribution(negRisk bool, days, hours int, historyData []Pri
 		count.processOutcome(history)
 		outcomeMap[key] = count
 	}
-	outcomes := sortMap(outcomeMap, cmp.Compare)
+	outcomes := sortMapByKey(outcomeMap, cmp.Compare)
 	fmt.Printf("Distribution: negRisk = %t, days = %d, hours = %d\n", negRisk, days, hours)
 	for _, outcome := range outcomes {
 		fmt.Printf("%s: %s (%d samples)\n", outcome.description, outcome.getPercentage(), outcome.total)
@@ -161,7 +202,7 @@ func analyzeMonthlyDistribution(negRisk bool, days, hours int, priceMin, priceMa
 		count.prices = append(count.prices, sample.Price)
 		monthMap[key] = count
 	}
-	outcomes := sortMap(monthMap, func (a, b yearMonth) int {
+	outcomes := sortMapByKey(monthMap, func (a, b yearMonth) int {
 		if a.year != b.year {
 			return cmp.Compare(a.year, b.year)
 		} else {
@@ -221,7 +262,7 @@ func analyzeHourSeasonality(negRisk bool, historyData []PriceHistoryBSON) {
 			hourMap[key] = entry
 		}
 	}
-	entries := sortMap(hourMap, cmp.Compare)
+	entries := sortMapByKey(hourMap, cmp.Compare)
 	fmt.Printf("Seasonality by hour (negRisk = %t)\n", negRisk)
 	for _, entry := range entries {
 		meanReturn := stat.Mean(entry.returns, nil)
@@ -265,7 +306,7 @@ func analyzeWeekdaySeasonality(negRisk bool, samplingHour int, historyData []Pri
 			weekdayMap[key] = entry
 		}
 	}
-	entries := sortMap(weekdayMap, cmp.Compare)
+	entries := sortMapByKey(weekdayMap, cmp.Compare)
 	fmt.Printf("Seasonality by day (negRisk = %t, samplingHour = %dh):\n", negRisk, samplingHour)
 	for _, entry := range entries {
 		meanReturns := stat.Mean(entry.returns, nil)
