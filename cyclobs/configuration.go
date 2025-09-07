@@ -27,6 +27,7 @@ type Credentials struct {
 
 type DataModeConfiguration struct {
 	TagSlugs []string `yaml:"tagSlugs"`
+	Events []string `yaml:"events"`
 	MinVolume *SerializableDecimal `yaml:"minVolume"`
 	BufferTimeSpan *int `yaml:"bufferTimeSpan"`
 }

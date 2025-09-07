@@ -22,6 +22,19 @@ func getEvents(tagSlug string) ([]Event, error) {
 	return events.Data, nil
 }
 
+func getEventBySlug(slug string) (Event, error) {
+	url := fmt.Sprintf("https://gamma-api.polymarket.com/events/slug/%s", slug)
+	parameters := map[string]string{
+		"include_chat": "false",
+		"include_template": "false",
+	}
+	event, err := getJSON[Event](url, parameters)
+	if err != nil {
+		return Event{}, err
+	}
+	return event, nil
+}
+
 func getEventTags(id int) ([]EventTag, error) {
 	url := fmt.Sprintf("https://gamma-api.polymarket.com/events/%d/tags", id)
 	tags, err := getJSON[[]EventTag](url, map[string]string{})
@@ -68,13 +81,13 @@ func getPositions() ([]Position, error) {
 	return positions, nil
 }
 
-func getPriceHistory(market string, start time.Time) (PriceHistory, error) {
+func getPriceHistory(market string, start time.Time, fidelity int) (PriceHistory, error) {
 	unixTimestamp := start.Unix()
 	url := "https://clob.polymarket.com/prices-history"
 	parameters := map[string]string{
 		"market": market,
 		"startTs": intToString(unixTimestamp),
-		"fidelity": "60",
+		"fidelity": intToString(int64(fidelity)),
 	}
 	history, err := getJSON[PriceHistory](url, parameters)
 	if err != nil {

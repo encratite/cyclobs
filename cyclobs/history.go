@@ -11,6 +11,7 @@ const (
 	historyMaxOffset = 10000
 	historyOrder = "volumeNum"
 	historyStartDateMin = "2023-01-01"
+	historyFidelity = 60
 )
 
 func History() {
@@ -60,7 +61,7 @@ func History() {
 			}
 			tokenIDs := getCLOBTokenIDs(market)
 			yesID := tokenIDs[0]
-			history, err := getPriceHistory(yesID, startDate)
+			history, err := getPriceHistory(yesID, startDate, historyFidelity)
 			dbSamples := []PriceHistorySampleBSON{}
 			for _, s := range history.History {
 				timestamp := time.Unix(int64(s.Time), 0).UTC()

@@ -11,6 +11,8 @@ func main() {
 	triggerMode := flag.Bool("trigger", false, "Run automated trading system using take profit/stop-loss trigger levels defined in the configuration file")
 	history := flag.Bool("history", false, "Download recent historical data")
 	analyze := flag.Bool("analyze", false, "Analyze historical data previously downloaded using -history")
+	download := flag.String("download", "", "Download the complete price history of the specified event slug, also requires -output")
+	output := flag.String("output", "", "The directory to download the complete price history to, only works in combination with -download")
 	flag.Parse()
 	if *dataMode {
 		cyclobs.DataMode()
@@ -20,6 +22,8 @@ func main() {
 		cyclobs.History()
 	} else if *analyze {
 		cyclobs.Analyze()
+	} else if *download != "" && *output != "" {
+		cyclobs.Download(*download, *output)
 	} else {
 		flag.Usage()
 	}
