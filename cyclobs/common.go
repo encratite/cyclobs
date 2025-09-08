@@ -29,6 +29,15 @@ func readFile(path string) []byte {
 	return content
 }
 
+func contains[T comparable](slice []T, element T) bool {
+	for _, x := range slice {
+		if x == element {
+			return true
+		}
+	}
+	return false
+}
+
 func containsFunc[T any](slice []T, match func (T) bool) bool {
 	for _, x := range slice {
 		if match(x) {

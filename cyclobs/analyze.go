@@ -3,6 +3,7 @@ package cyclobs
 import (
 	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,9 +16,9 @@ const (
 	outcomeDistributionBins = 10
 	seasonalityPriceMin = 0.01
 	seasonalityPriceMax = 0.98
-	seasonalityMinYear = 2000
 	minHistorySize = 10
 	quantileCount = 5
+	dataMinYear = 2025
 )
 
 type outcomeCount struct {
@@ -59,16 +60,23 @@ type quantileData struct {
 	prices []float64
 }
 
+type tagDeltaData struct {
+	tag string
+	delta float64
+	samples int
+}
+
 func Analyze() {
 	loadConfiguration()
 	database := newDatabaseClient()
 	defer database.close()
 	historyData := database.getPriceHistoryData()
-	analyzeCategories(false, historyData)
-	analyzeCategories(true, historyData)
+	// analyzeCategories(false, historyData)
+	// analyzeCategories(true, historyData)
 	// analyzeMonthlyDistribution(false, 0, 1, 0.4, 0.6, historyData)
 	// analyzeHours(historyData)
 	// analyzePriceRanges(historyData)
+	analyzeCategoryPriceRange(false, 15, 30, 0.6, 0.7, historyData)
 }
 
 func analyzeOutcomeDistributions(historyData []PriceHistoryBSON) {
@@ -99,6 +107,9 @@ func analyzeCategories(negRisk bool, historyData []PriceHistoryBSON) {
 	categoryMap := map[string]categoryData{}
 	for _, history := range historyData {
 		if !history.Closed || history.Outcome == nil || history.NegRisk != negRisk || len(history.History) < quantileCount {
+			continue
+		}
+		if history.StartDate.Year() < dataMinYear {
 			continue
 		}
 		quantilePrices := make([]float64, 0, quantileCount)
@@ -285,7 +296,7 @@ func analyzeWeekdaySeasonality(negRisk bool, samplingHour int, historyData []Pri
 			previousSample := samples[i - 1]
 			timestamp := sample.Timestamp
 			date := getDate(timestamp)
-			if date.Year() < seasonalityMinYear {
+			if date.Year() < dataMinYear {
 				continue
 			}
 			key := sample.Timestamp.Weekday()
@@ -360,8 +371,86 @@ func analyzePriceRangeReturns(negRisk bool, samplingHour int, offset int, histor
 		rangeMin: 0.98,
 		rangeMax: 1.0,
 	})
+	fillPriceRangeBins(negRisk, samplingHour, offset, priceRangeBins, historyData)
+	fmt.Printf("Outcome deltas by rice range (negRisk = %t, samplingHour = %dh, offset = %d):\n", negRisk, samplingHour, offset)
+	for _, priceRange := range priceRangeBins {
+		meanDelta := stat.Mean(priceRange.deltas, nil)
+		fmt.Printf("\t%.2f - %.2f: %.3f\n", priceRange.rangeMin, priceRange.rangeMax, meanDelta)
+	}
+	fmt.Printf("\n")
+}
+
+func analyzeCategoryPriceRange(
+	negRisk bool,
+	samplingHour int,
+	offset int,
+	rangeMin float64,
+	rangeMax float64,
+	historyData []PriceHistoryBSON,
+) {
+	tagCount := map[string]int{}
 	for _, history := range historyData {
-		if history.NegRisk != negRisk || len(history.History) < minHistorySize {
+		if !includeHistory(negRisk, history) {
+			continue
+		}
+		for _, tag := range history.Tags {
+			tagCount[tag]++
+		}
+	}
+	pairs := []keyValuePair[string, int]{}
+	for key, value := range tagCount {
+		pair := keyValuePair[string, int]{
+			key: key,
+			value: value,
+		}
+		pairs = append(pairs, pair)
+	}
+	slices.SortFunc(pairs, func (a, b keyValuePair[string, int]) int {
+		return cmp.Compare(b.value, a.value)
+	})
+	format := "Outcome deltas by category (negRisk = %t, samplingHour = %d, offset = %d, rangeMin = %.1f, rangeMax = %.1f)\n"
+	fmt.Printf(format, negRisk, samplingHour, offset, rangeMin, rangeMax)
+	row := 0
+	for _, pair := range pairs {
+		if row >= categoryLimit {
+			break
+		}
+		tag := pair.key
+		matchingHistories := []PriceHistoryBSON{}
+		for _, history := range historyData {
+			if !includeHistory(negRisk, history) {
+				continue
+			}
+			if contains(history.Tags, tag) {
+				matchingHistories = append(matchingHistories, history)
+			}
+		}
+		priceRangeBins := []priceRangeReturns{
+			{
+				rangeMin: rangeMin,
+				rangeMax: rangeMax,
+			},
+		}
+		fillPriceRangeBins(negRisk, samplingHour, offset, priceRangeBins, matchingHistories)
+		deltas := priceRangeBins[0].deltas
+		if len(deltas) == 0 {
+			continue
+		}
+		meanDelta := stat.Mean(deltas, nil)
+		fmt.Printf("\t%d. %s: %.3f (%d samples)\n", row + 1, tag, meanDelta, len(deltas))
+		row++
+	}
+}
+
+func fillPriceRangeBins(
+	negRisk bool,
+	samplingHour int,
+	offset int,
+	priceRangeBins []priceRangeReturns,
+	historyData []PriceHistoryBSON,
+) {
+	for _, history := range historyData {
+		if !includeHistory(negRisk, history) {
 			continue
 		}
 		samples := getSamplingHours(samplingHour, history)
@@ -377,12 +466,6 @@ func analyzePriceRangeReturns(negRisk bool, samplingHour int, offset int, histor
 			}
 		}
 	}
-	fmt.Printf("Returns by price range (negRisk = %t, samplingHour = %dh, offset = %d):\n", negRisk, samplingHour, offset)
-	for _, priceRange := range priceRangeBins {
-		meanDelta := stat.Mean(priceRange.deltas, nil)
-		fmt.Printf("\t%.2f - %.2f: %.3f\n", priceRange.rangeMin, priceRange.rangeMax, meanDelta)
-	}
-	fmt.Printf("\n")
 }
 
 func newOutcome(description string) outcomeCount {
@@ -422,7 +505,7 @@ func getSamplingHours(samplingHour int, history PriceHistoryBSON) []PriceHistory
 	for _, sample := range history.History {
 		timestamp := sample.Timestamp
 		date := getDate(timestamp)
-		if date.Year() < seasonalityMinYear {
+		if date.Year() < dataMinYear {
 			continue
 		}
 		if !hasPreviousSample {
@@ -436,4 +519,12 @@ func getSamplingHours(samplingHour int, history PriceHistoryBSON) []PriceHistory
 		}
 	}
 	return samples
+}
+
+func includeHistory(negRisk bool, history PriceHistoryBSON) bool {
+	include := history.Closed
+	include = include && history.StartDate.Year() >= dataMinYear
+	include = include && history.NegRisk == negRisk
+	include = include && len(history.History) >= minHistorySize
+	return include
 }
