@@ -19,6 +19,7 @@ const (
 	minHistorySize = 10
 	quantileCount = 5
 	dataMinYear = 2025
+	tagSamplesMin = 100
 )
 
 type outcomeCount struct {
@@ -388,57 +389,47 @@ func analyzeCategoryPriceRange(
 	rangeMax float64,
 	historyData []PriceHistoryBSON,
 ) {
-	tagCount := map[string]int{}
+	tagHistories := map[string][]PriceHistoryBSON{}
 	for _, history := range historyData {
 		if !includeHistory(negRisk, history) {
 			continue
 		}
 		for _, tag := range history.Tags {
-			tagCount[tag]++
+			tagHistories[tag] = append(tagHistories[tag], history)
 		}
 	}
-	pairs := []keyValuePair[string, int]{}
-	for key, value := range tagCount {
-		pair := keyValuePair[string, int]{
-			key: key,
-			value: value,
-		}
-		pairs = append(pairs, pair)
-	}
-	slices.SortFunc(pairs, func (a, b keyValuePair[string, int]) int {
-		return cmp.Compare(b.value, a.value)
-	})
-	format := "Outcome deltas by category (negRisk = %t, samplingHour = %d, offset = %d, rangeMin = %.1f, rangeMax = %.1f)\n"
-	fmt.Printf(format, negRisk, samplingHour, offset, rangeMin, rangeMax)
-	row := 0
-	for _, pair := range pairs {
-		if row >= categoryLimit {
-			break
-		}
-		tag := pair.key
-		matchingHistories := []PriceHistoryBSON{}
-		for _, history := range historyData {
-			if !includeHistory(negRisk, history) {
-				continue
-			}
-			if contains(history.Tags, tag) {
-				matchingHistories = append(matchingHistories, history)
-			}
-		}
+	tagDeltas := []tagDeltaData{}
+	for tag, tagHistoryData := range tagHistories {
 		priceRangeBins := []priceRangeReturns{
 			{
 				rangeMin: rangeMin,
 				rangeMax: rangeMax,
 			},
 		}
-		fillPriceRangeBins(negRisk, samplingHour, offset, priceRangeBins, matchingHistories)
+		fillPriceRangeBins(negRisk, samplingHour, offset, priceRangeBins, tagHistoryData)
 		deltas := priceRangeBins[0].deltas
-		if len(deltas) == 0 {
+		samples := len(deltas)
+		if samples == 0 {
 			continue
 		}
 		meanDelta := stat.Mean(deltas, nil)
-		fmt.Printf("\t%d. %s: %.3f (%d samples)\n", row + 1, tag, meanDelta, len(deltas))
-		row++
+		tagDelta := tagDeltaData{
+			tag: tag,
+			delta: meanDelta,
+			samples: samples,
+		}
+		tagDeltas = append(tagDeltas, tagDelta)
+	}
+	slices.SortFunc(tagDeltas, func (a, b tagDeltaData) int {
+		return cmp.Compare(b.samples, a.samples)
+	})
+	format := "Outcome deltas by category (negRisk = %t, samplingHour = %d, offset = %d, rangeMin = %.1f, rangeMax = %.1f)\n"
+	fmt.Printf(format, negRisk, samplingHour, offset, rangeMin, rangeMax)
+	for i, tagDelta := range tagDeltas {
+		if tagDelta.samples < tagSamplesMin {
+			break
+		}
+		fmt.Printf("\t%d. %s: %.3f (%d samples)\n", i + 1, tagDelta.tag, tagDelta.delta, tagDelta.samples)
 	}
 }
 
