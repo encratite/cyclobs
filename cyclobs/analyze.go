@@ -19,7 +19,7 @@ const (
 	minHistorySize = 10
 	quantileCount = 5
 	dataMinYear = 2025
-	tagSamplesMin = 100
+	tagSamplesMin = 50
 )
 
 type outcomeCount struct {
@@ -49,6 +49,7 @@ type priceRangeReturns struct {
 	rangeMin float64
 	rangeMax float64
 	deltas []float64
+	tempDeltas []float64
 }
 
 type categoryData struct {
@@ -445,16 +446,29 @@ func fillPriceRangeBins(
 			continue
 		}
 		samples := getSamplingHours(samplingHour, history)
-		for i := range (len(samples) - offset) {
+		for i := range samples {
 			price1 := samples[i].Price
-			price2 := samples[i + offset].Price
+			adjustedOffset := i + offset
+			if adjustedOffset >= len(samples) {
+				adjustedOffset = len(samples) - 1
+			}
+			price2 := samples[adjustedOffset].Price
 			delta := price2 - price1
 			for j := range priceRangeBins {
 				priceRange := &priceRangeBins[j]
 				if price1 >= priceRange.rangeMin && price1 < priceRange.rangeMax {
-					priceRange.deltas = append(priceRange.deltas, delta)
+					priceRange.tempDeltas = append(priceRange.tempDeltas, delta)
 				}
 			}
+		}
+		for i := range priceRangeBins {
+			priceRange := &priceRangeBins[i]
+			if len(priceRange.tempDeltas) == 0 {
+				continue
+			}
+			meanDelta := stat.Mean(priceRange.tempDeltas, nil)
+			priceRange.deltas = append(priceRange.deltas, meanDelta)
+			priceRange.tempDeltas = []float64{}
 		}
 	}
 }
