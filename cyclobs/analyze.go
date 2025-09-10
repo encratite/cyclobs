@@ -20,6 +20,7 @@ const (
 	quantileCount = 5
 	dataMinYear = 2025
 	tagSamplesMin = 50
+	priceRangeBinsDaysMin = 2
 )
 
 type outcomeCount struct {
@@ -49,7 +50,7 @@ type priceRangeReturns struct {
 	rangeMin float64
 	rangeMax float64
 	deltas []float64
-	tempDeltas []float64
+	hit bool
 }
 
 type categoryData struct {
@@ -78,7 +79,7 @@ func Analyze() {
 	// analyzeMonthlyDistribution(false, 0, 1, 0.4, 0.6, historyData)
 	// analyzeHours(historyData)
 	// analyzePriceRanges(historyData)
-	analyzeCategoryPriceRange(false, 15, 30, 0.6, 0.7, historyData)
+	analyzeCategoryPriceRange(false, 15, 15, 0.7, 0.8, historyData)
 }
 
 func analyzeOutcomeDistributions(historyData []PriceHistoryBSON) {
@@ -446,7 +447,14 @@ func fillPriceRangeBins(
 			continue
 		}
 		samples := getSamplingHours(samplingHour, history)
+		for i := range priceRangeBins {
+			priceRange := &priceRangeBins[i]
+			priceRange.hit = false
+		}
 		for i := range samples {
+			if i < priceRangeBinsDaysMin {
+				continue
+			}
 			price1 := samples[i].Price
 			adjustedOffset := i + offset
 			if adjustedOffset >= len(samples) {
@@ -456,19 +464,11 @@ func fillPriceRangeBins(
 			delta := price2 - price1
 			for j := range priceRangeBins {
 				priceRange := &priceRangeBins[j]
-				if price1 >= priceRange.rangeMin && price1 < priceRange.rangeMax {
-					priceRange.tempDeltas = append(priceRange.tempDeltas, delta)
+				if !priceRange.hit && price1 >= priceRange.rangeMin && price1 < priceRange.rangeMax {
+					priceRange.deltas = append(priceRange.deltas, delta)
+					priceRange.hit = true
 				}
 			}
-		}
-		for i := range priceRangeBins {
-			priceRange := &priceRangeBins[i]
-			if len(priceRange.tempDeltas) == 0 {
-				continue
-			}
-			meanDelta := stat.Mean(priceRange.tempDeltas, nil)
-			priceRange.deltas = append(priceRange.deltas, meanDelta)
-			priceRange.tempDeltas = []float64{}
 		}
 	}
 }

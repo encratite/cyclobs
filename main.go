@@ -13,6 +13,7 @@ func main() {
 	analyze := flag.Bool("analyze", false, "Analyze historical data previously downloaded using -history")
 	download := flag.String("download", "", "Download the complete price history of the specified event slug, also requires -output")
 	output := flag.String("output", "", "The directory to download the complete price history to, only works in combination with -download")
+	screener := flag.Bool("screener", false, "Filter for events that meet certain criteria")
 	flag.Parse()
 	if *dataMode {
 		cyclobs.DataMode()
@@ -24,6 +25,8 @@ func main() {
 		cyclobs.Analyze()
 	} else if *download != "" && *output != "" {
 		cyclobs.Download(*download, *output)
+	} else if *screener {
+		cyclobs.Screener()
 	} else {
 		flag.Usage()
 	}
