@@ -21,6 +21,8 @@ const (
 	dataMinYear = 2025
 	tagSamplesMin = 50
 	priceRangeBinsDaysMin = 2
+	spread = 0.01
+	percent = 100.0
 )
 
 type outcomeCount struct {
@@ -50,6 +52,8 @@ type priceRangeReturns struct {
 	rangeMin float64
 	rangeMax float64
 	deltas []float64
+	yesReturns []float64
+	noReturns []float64
 	hit bool
 }
 
@@ -66,6 +70,8 @@ type quantileData struct {
 type tagDeltaData struct {
 	tag string
 	delta float64
+	yes float64
+	no float64
 	samples int
 }
 
@@ -375,7 +381,7 @@ func analyzePriceRangeReturns(negRisk bool, samplingHour int, offset int, histor
 		rangeMax: 1.0,
 	})
 	fillPriceRangeBins(negRisk, samplingHour, offset, priceRangeBins, historyData)
-	fmt.Printf("Outcome deltas by rice range (negRisk = %t, samplingHour = %dh, offset = %d):\n", negRisk, samplingHour, offset)
+	fmt.Printf("Outcomes by rice range (negRisk = %t, samplingHour = %dh, offset = %d):\n", negRisk, samplingHour, offset)
 	for _, priceRange := range priceRangeBins {
 		meanDelta := stat.Mean(priceRange.deltas, nil)
 		fmt.Printf("\t%.2f - %.2f: %.3f\n", priceRange.rangeMin, priceRange.rangeMax, meanDelta)
@@ -409,15 +415,20 @@ func analyzeCategoryPriceRange(
 			},
 		}
 		fillPriceRangeBins(negRisk, samplingHour, offset, priceRangeBins, tagHistoryData)
-		deltas := priceRangeBins[0].deltas
+		bin := priceRangeBins[0]
+		deltas := bin.deltas
 		samples := len(deltas)
 		if samples == 0 {
 			continue
 		}
 		meanDelta := stat.Mean(deltas, nil)
+		meanYes := stat.Mean(bin.yesReturns, nil)
+		meanNo := stat.Mean(bin.noReturns, nil)
 		tagDelta := tagDeltaData{
 			tag: tag,
 			delta: meanDelta,
+			yes: meanYes,
+			no: meanNo,
 			samples: samples,
 		}
 		tagDeltas = append(tagDeltas, tagDelta)
@@ -425,13 +436,14 @@ func analyzeCategoryPriceRange(
 	slices.SortFunc(tagDeltas, func (a, b tagDeltaData) int {
 		return cmp.Compare(b.samples, a.samples)
 	})
-	format := "Outcome deltas by category (negRisk = %t, samplingHour = %d, offset = %d, rangeMin = %.1f, rangeMax = %.1f)\n"
+	format := "Outcomes by category (negRisk = %t, samplingHour = %d, offset = %d, rangeMin = %.1f, rangeMax = %.1f)\n"
 	fmt.Printf(format, negRisk, samplingHour, offset, rangeMin, rangeMax)
 	for i, tagDelta := range tagDeltas {
 		if tagDelta.samples < tagSamplesMin {
 			break
 		}
-		fmt.Printf("\t%d. %s: %.3f (%d samples)\n", i + 1, tagDelta.tag, tagDelta.delta, tagDelta.samples)
+		format := "\t%d. %s: delta = %.3f, yes = %.2f%%, no = %.2f%%, samples = %d\n"
+		fmt.Printf(format, i + 1, tagDelta.tag, tagDelta.delta, tagDelta.yes * percent, tagDelta.no * percent, tagDelta.samples)
 	}
 }
 
@@ -456,16 +468,22 @@ func fillPriceRangeBins(
 				continue
 			}
 			price1 := samples[i].Price
-			adjustedOffset := i + offset
-			if adjustedOffset >= len(samples) {
-				adjustedOffset = len(samples) - 1
-			}
-			price2 := samples[adjustedOffset].Price
-			delta := price2 - price1
 			for j := range priceRangeBins {
 				priceRange := &priceRangeBins[j]
 				if !priceRange.hit && price1 >= priceRange.rangeMin && price1 < priceRange.rangeMax {
+					adjustedOffset := i + offset
+					if adjustedOffset >= len(samples) {
+						adjustedOffset = len(samples) - 1
+					}
+					price2 := samples[adjustedOffset].Price
+					delta := price2 - price1
+					yesReturns := getRateOfChange(price2 - spread, price1)
+					noPrice1 := 1.0 - price1
+					noPrice2 := 1.0 - price2
+					noReturns := getRateOfChange(noPrice2 - spread, noPrice1)
 					priceRange.deltas = append(priceRange.deltas, delta)
+					priceRange.yesReturns = append(priceRange.yesReturns, yesReturns)
+					priceRange.noReturns = append(priceRange.noReturns, noReturns)
 					priceRange.hit = true
 				}
 			}

@@ -180,3 +180,7 @@ func writeFile(path, data string) {
 func getTimeString(timestamp time.Time) string {
 	return timestamp.Format(timestampLayout)
 }
+
+func getRateOfChange(newValue, oldValue float64) float64 {
+	return newValue / oldValue - 1.0
+}
