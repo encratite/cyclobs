@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"regexp"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/emirpasic/gods/maps/treemap"
@@ -127,7 +128,7 @@ func (s *tradingSystem) runDataMode() {
 	assetIDs := getAssetIDs(markets)
 	s.database.insertMarkets(markets, assetIDs, eventSlugMap)
 	log.Printf("Subscribed to %d markets", len(assetIDs))
-	s.subscribe(assetIDs)
+	s.subscribeSingle(assetIDs)
 }
 
 func (s *tradingSystem) runTriggerMode() {
@@ -172,10 +173,10 @@ func (s *tradingSystem) runTriggerMode() {
 	for _, market := range s.markets {
 		log.Printf("Subscribed to market \"%s\"", market.Slug)
 	}
-	s.subscribe(assetIDs)
+	s.subscribeMulti(assetIDs)
 }
 
-func (s *tradingSystem) subscribe(assetIDs []string) {
+func (s *tradingSystem) subscribeSingle(assetIDs []string) {
 	err := subscribeToMarkets(assetIDs, func (messages []BookMessage) {
 		for _, message := range messages {
 			s.onBookMessage(message)
@@ -184,6 +185,28 @@ func (s *tradingSystem) subscribe(assetIDs []string) {
 	if err != nil {
 		log.Printf("Subscription error: %v", err)
 	}
+}
+
+func (s *tradingSystem) subscribeMulti(assetIDs []string) {
+	var wg sync.WaitGroup
+	wg.Add(len(assetIDs))
+	for _, assetID := range assetIDs {
+		subscriptionIDs := []string{
+			assetID,
+		}
+		go func() {
+			defer wg.Done()
+			err := subscribeToMarkets(subscriptionIDs, func (messages []BookMessage) {
+				for _, message := range messages {
+					s.onBookMessage(message)
+				}
+			})
+			if err != nil {
+				log.Printf("Subscription error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func (s *tradingSystem) interrupt() {

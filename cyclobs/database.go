@@ -92,7 +92,7 @@ type PriceHistoryBSON struct {
 	NegRisk bool `bson:"negRisk"`
 	Closed bool `bson:"closed"`
 	StartDate time.Time `bson:"startDate"`
-	EndDate *time.Time `bson:"EndDate"`
+	EndDate *time.Time `bson:"endDate"`
 	Volume float64 `bson:"volume"`
 	Outcome *bool `bson:"outcome"`
 	Tags []string `bson:"tags"`
@@ -135,7 +135,7 @@ func newDatabaseClient() databaseClient {
 func (c *databaseClient) createIndexes() {	
 	c.createMarketIndexes()
 	c.createChannelIndexes()
-	c.createOtherIndexes()
+	c.createHistoryIndexes()
 }
 
 func (c *databaseClient) createMarketIndexes() {
@@ -179,15 +179,25 @@ func (c *databaseClient) createChannelIndexes() {
 	}
 }
 
-func (c *databaseClient) createOtherIndexes() {
+func (c *databaseClient) createHistoryIndexes() {
 	slugKey := bson.D{
 		{Key: "slug", Value: 1},
 	}
-	historySlugIndex := mongo.IndexModel{
+	slugIndex := mongo.IndexModel{
 		Keys: slugKey,
 		Options: options.Index().SetUnique(true),
 	}
-	createIndex(c.history, historySlugIndex)
+	createIndex(c.history, slugIndex)
+	closedKey := bson.D{
+		{Key: "closed", Value: -1},
+		{Key: "negRisk", Value: 1},
+		{Key: "volume", Value: 1},
+	}
+	closedIndex := mongo.IndexModel{
+		Keys: closedKey,
+		Options: options.Index().SetUnique(true),
+	}
+	createIndex(c.history, closedIndex)
 }
 
 func (c *databaseClient) close() {
@@ -371,10 +381,22 @@ func (c *databaseClient) insertPriceHistory(history PriceHistoryBSON) {
 	}
 }
 
-func (c *databaseClient) getPriceHistoryData() []PriceHistoryBSON {
+func (c *databaseClient) getPriceHistoryData(closed *bool, negRisk *bool, minVolume *float64) []PriceHistoryBSON {
 	ctx, cancel := getDatabaseContext()
 	defer cancel()
-	cursor, err := c.history.Find(ctx, bson.M{})
+	filter := bson.M{}
+	if closed != nil {
+		filter["closed"] = *closed
+	}
+	if negRisk != nil {
+		filter["negRisk"] = *negRisk
+	}
+	if minVolume != nil {
+		filter["volume"] = bson.M{
+			"$gte": *minVolume,
+		}
+	}
+	cursor, err := c.history.Find(ctx, filter)
 	if err != nil {
 		log.Fatalf("Failed to read price history data: %v", err)
 	}

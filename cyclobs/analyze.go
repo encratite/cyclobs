@@ -79,7 +79,8 @@ func Analyze() {
 	loadConfiguration()
 	database := newDatabaseClient()
 	defer database.close()
-	historyData := database.getPriceHistoryData()
+	closed := true
+	historyData := database.getPriceHistoryData(&closed, nil, nil)
 	// analyzeCategories(false, historyData)
 	// analyzeCategories(true, historyData)
 	// analyzeMonthlyDistribution(false, 0, 1, 0.4, 0.6, historyData)
