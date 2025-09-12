@@ -2,6 +2,7 @@ package cyclobs
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -14,7 +15,10 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-const timestampLayout = "2006-01-02 15:04:05"
+const (
+	dateLayout = "2006-01-02"
+	timestampLayout = "2006-01-02 15:04:05"
+)
 
 type keyValuePair[K comparable, V any] struct {
 	key K
@@ -162,7 +166,41 @@ func sortMapByValue[K comparable, V any](m map[K]V, compare func (V, V) int) []V
 }
 
 func getDate(timestamp time.Time) time.Time {
-	return time.Date(timestamp.Year(), timestamp.Month(), timestamp.Day(), 0, 0, 0, 0, timestamp.Location())
+	return time.Date(
+		timestamp.Year(),
+		timestamp.Month(),
+		timestamp.Day(),
+		0,
+		0,
+		0,
+		0,
+		timestamp.Location(),
+	)
+}
+
+func getHourTimestamp(timestamp time.Time) time.Time {
+	return time.Date(
+		timestamp.Year(),
+		timestamp.Month(),
+		timestamp.Day(),
+		timestamp.Hour(),
+		0,
+		0,
+		0,
+		timestamp.Location(),
+	)
+}
+
+func getDateFromString(dateString string) time.Time {
+	date, err := time.Parse(dateLayout, dateString)
+	if err != nil {
+		log.Fatalf("failed to parse date string \"%s\": %v", dateString, err)
+	}
+	return date
+}
+
+func getDateString(date time.Time) string {
+	return date.Format(dateLayout)
 }
 
 func getReturns(newValue, oldValue float64) float64 {
@@ -183,4 +221,16 @@ func getTimeString(timestamp time.Time) string {
 
 func getRateOfChange(newValue, oldValue float64) float64 {
 	return newValue / oldValue - 1.0
+}
+
+func formatMoney(amount float64) string {
+	amountString := fmt.Sprintf("%d", int64(amount))
+	output := "$"
+	for i, character := range amountString {
+		if i > 0 && (len(amountString) - i) % 3 == 0 {
+			output += ","
+		}
+		output += string(character)
+	}
+	return output
 }

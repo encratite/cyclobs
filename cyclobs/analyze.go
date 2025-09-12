@@ -18,7 +18,7 @@ const (
 	seasonalityPriceMax = 0.98
 	minHistorySize = 10
 	quantileCount = 5
-	dataMinYear = 2025
+	dataMinYear = 2000
 	tagSamplesMin = 50
 	priceRangeBinsDaysMin = 2
 	spread = 0.01
@@ -86,7 +86,7 @@ func Analyze() {
 	// analyzeMonthlyDistribution(false, 0, 1, 0.4, 0.6, historyData)
 	// analyzeHours(historyData)
 	// analyzePriceRanges(historyData)
-	analyzeCategoryPriceRange(false, 15, 15, 0.7, 0.8, historyData)
+	analyzeCategoryPriceRanges(historyData)
 }
 
 func analyzeOutcomeDistributions(historyData []PriceHistoryBSON) {
@@ -390,6 +390,23 @@ func analyzePriceRangeReturns(negRisk bool, samplingHour int, offset int, histor
 	fmt.Printf("\n")
 }
 
+func analyzeCategoryPriceRanges(historyData []PriceHistoryBSON) {
+	negRisk := false
+	samplingHour := 15
+	offset := 1
+	limits := [][]float64{
+		{0.7, 0.8},
+		{0.8, 0.85},
+		{0.85, 0.9},
+		{0.9, 0.95},
+	}
+	for _, rangeMinMax := range limits {
+		rangeMin := rangeMinMax[0]
+		rangeMax := rangeMinMax[1]
+		analyzeCategoryPriceRange(negRisk, samplingHour, offset, rangeMin, rangeMax, historyData)
+	}
+}
+
 func analyzeCategoryPriceRange(
 	negRisk bool,
 	samplingHour int,
@@ -435,16 +452,18 @@ func analyzeCategoryPriceRange(
 		tagDeltas = append(tagDeltas, tagDelta)
 	}
 	slices.SortFunc(tagDeltas, func (a, b tagDeltaData) int {
-		return cmp.Compare(b.samples, a.samples)
+		return cmp.Compare(a.delta, b.delta)
 	})
-	format := "Outcomes by category (negRisk = %t, samplingHour = %d, offset = %d, rangeMin = %.1f, rangeMax = %.1f)\n"
+	format := "Outcomes by category (negRisk = %t, samplingHour = %d, offset = %d, rangeMin = %.2f, rangeMax = %.2f)\n"
 	fmt.Printf(format, negRisk, samplingHour, offset, rangeMin, rangeMax)
-	for i, tagDelta := range tagDeltas {
+	row := 1
+	for _, tagDelta := range tagDeltas {
 		if tagDelta.samples < tagSamplesMin {
-			break
+			continue
 		}
 		format := "\t%d. %s: delta = %.3f, yes = %.2f%%, no = %.2f%%, samples = %d\n"
-		fmt.Printf(format, i + 1, tagDelta.tag, tagDelta.delta, tagDelta.yes * percent, tagDelta.no * percent, tagDelta.samples)
+		fmt.Printf(format, row, tagDelta.tag, tagDelta.delta, tagDelta.yes * percent, tagDelta.no * percent, tagDelta.samples)
+		row += 1
 	}
 }
 

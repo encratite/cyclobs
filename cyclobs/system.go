@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"regexp"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/emirpasic/gods/maps/treemap"
@@ -19,7 +18,7 @@ import (
 
 const (
 	eventsLimit = 50
-	reconnectDelay = 10
+	reconnectDelay = 5
 	bookEvent = "book"
 	priceChangeEvent = "price_change"
 	lastTradePriceEvent = "last_trade_price"
@@ -128,7 +127,7 @@ func (s *tradingSystem) runDataMode() {
 	assetIDs := getAssetIDs(markets)
 	s.database.insertMarkets(markets, assetIDs, eventSlugMap)
 	log.Printf("Subscribed to %d markets", len(assetIDs))
-	s.subscribeSingle(assetIDs)
+	s.subscribe(assetIDs)
 }
 
 func (s *tradingSystem) runTriggerMode() {
@@ -173,10 +172,10 @@ func (s *tradingSystem) runTriggerMode() {
 	for _, market := range s.markets {
 		log.Printf("Subscribed to market \"%s\"", market.Slug)
 	}
-	s.subscribeMulti(assetIDs)
+	s.subscribe(assetIDs)
 }
 
-func (s *tradingSystem) subscribeSingle(assetIDs []string) {
+func (s *tradingSystem) subscribe(assetIDs []string) {
 	err := subscribeToMarkets(assetIDs, func (messages []BookMessage) {
 		for _, message := range messages {
 			s.onBookMessage(message)
@@ -185,28 +184,6 @@ func (s *tradingSystem) subscribeSingle(assetIDs []string) {
 	if err != nil {
 		log.Printf("Subscription error: %v", err)
 	}
-}
-
-func (s *tradingSystem) subscribeMulti(assetIDs []string) {
-	var wg sync.WaitGroup
-	wg.Add(len(assetIDs))
-	for _, assetID := range assetIDs {
-		subscriptionIDs := []string{
-			assetID,
-		}
-		go func() {
-			defer wg.Done()
-			err := subscribeToMarkets(subscriptionIDs, func (messages []BookMessage) {
-				for _, message := range messages {
-					s.onBookMessage(message)
-				}
-			})
-			if err != nil {
-				log.Printf("Subscription error: %v", err)
-			}
-		}()
-	}
-	wg.Wait()
 }
 
 func (s *tradingSystem) interrupt() {
@@ -353,10 +330,10 @@ func (s *tradingSystem) processTrigger(price decimal.Decimal, side string, subsc
 	}
 	if takeProfit != nil && price.GreaterThanOrEqual(takeProfit.Decimal) && side == sideBuy {
 		log.Printf("Take profit has been triggered for \"%s\" at %s", trigger.slug, price)
-		sellPosition(definition.TakeProfitLimit.Decimal)
+		go sellPosition(definition.TakeProfitLimit.Decimal)
 	} else if price.LessThanOrEqual(definition.StopLoss.Decimal) && side == sideSell {
 		log.Printf("Stop-loss has been triggered for \"%s\" at %s", trigger.slug, price)
-		sellPosition(definition.StopLossLimit.Decimal)
+		go sellPosition(definition.StopLossLimit.Decimal)
 	} else {
 		if debugTrigger {
 			format := "No action required: takeProfit = %s, takeProfitLimit = %s, stopLoss = %s, stopLossLimit = %s, size = %s, price = %s, side = %s"
