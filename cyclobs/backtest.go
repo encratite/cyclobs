@@ -27,6 +27,10 @@ const (
 	sideYes
 )
 
+type backtestStrategy interface {
+	next(backtest *backtestData)
+}
+
 type backtestDailyData struct {
 	historyData map[string]*PriceHistoryBSON
 }
@@ -62,12 +66,69 @@ type equityCurveSample struct {
 	cash float64
 }
 
+type backtestResult struct {
+	start time.Time
+	end time.Time
+	cash float64
+	totalReturn float64
+	maxDrawdown float64
+	sharpeRatio float64
+	trades int
+}
+
 func Backtest() {
 	loadConfiguration()
-	historyMap, dailyData, prices := loadBacktestData()
 	start := getDateFromString("2024-01-01")
 	end := getDateFromString("2025-10-01")
-	runBacktest(start, end, historyMap, dailyData, prices)
+	tags := []string{
+		"trump",
+		"trump-presidency",
+		"hide-from-new",
+		"weekly",
+		"crypto",
+		"crypto-prices",
+		"bitcoin",
+		"ethereum",
+	}
+	const (
+		positionSize = 25.0
+		holdingTime = 15 * 24
+		priceRangeCheck = false
+	)
+	strategies := []decayStrategy{}
+	for _, tag := range tags {
+		for i := range 10 {
+			strategyTags := []string{
+				tag,
+			}
+			triggerPriceMin := 0.1 * float64(i)
+			triggerPriceMax := 0.1 * float64(i + 1)
+			strategy := decayStrategy{
+				tags: strategyTags,
+				triggerPriceMin: triggerPriceMin,
+				triggerPriceMax: triggerPriceMax,
+				positionSize: positionSize,
+				holdingTime: holdingTime,
+				priceRangeCheck: priceRangeCheck,
+			}
+			strategies = append(strategies, strategy)
+		}
+	}
+	historyMap, dailyData, prices := loadBacktestData()
+	backtestStart := time.Now()
+	results := parallelMap(strategies, func (strategy decayStrategy) DecayStrategyResult {
+		result := runBacktest(&strategy, start, end, historyMap, dailyData, prices)
+		strategyResult := DecayStrategyResult{
+			Tag: strategy.tags[0],
+			Parameter: fmt.Sprintf("%.1f - %.1f", strategy.triggerPriceMin, strategy.triggerPriceMax),
+			SharpeRatio: result.sharpeRatio,
+		}
+		return strategyResult
+	})
+	backtestEnd := time.Now()
+	backtestDuration := backtestEnd.Sub(backtestStart)
+	fmt.Printf("Backtest finished after %.1f s\n", backtestDuration.Seconds())
+	plotData(results)
 }
 
 func loadBacktestData() (map[string]*PriceHistoryBSON, map[time.Time]backtestDailyData, map[backtestPriceKey]float64) {
@@ -105,12 +166,13 @@ func loadBacktestData() (map[string]*PriceHistoryBSON, map[time.Time]backtestDai
 }
 
 func runBacktest(
+	strategy backtestStrategy,
 	start time.Time,
 	end time.Time,
 	historyMap map[string]*PriceHistoryBSON,
 	dailyData map[time.Time]backtestDailyData,
 	prices map[backtestPriceKey]float64,
-) {
+) backtestResult {
 	backtest := backtestData{
 		cash: backtestInitialCash,
 		maxCash: backtestInitialCash,
@@ -129,27 +191,26 @@ func runBacktest(
 	backtest.equityCurve = []equityCurveSample{
 		sample,
 	}
-	backtestStart := time.Now()
 	for backtest.now.Before(end) {
-		executeStrategy(&backtest)
+		strategy.next(&backtest)
 		backtest.resolveMarkets()
 		backtest.updateStats()
 		backtest.now = backtest.now.Add(time.Hour)
 	}
 	backtest.addEquityCurveSample(end, backtest.cash)
-	backtestEnd := time.Now()
-	backtestDuration := backtestEnd.Sub(backtestStart)
 	backtest.closeAllPositions()
 	totalReturn := getRateOfChange(backtest.cash, backtestInitialCash)
 	sharpeRatio := backtest.getSharpeRatio()
-	fmt.Printf("\nBacktest concluded after %.1f s\n\n", backtestDuration.Seconds())
-	fmt.Printf("\tStart: %s\n", getDateString(start))
-	fmt.Printf("\tEnd: %s\n", getDateString(end))
-	fmt.Printf("\tCash: %s\n", formatMoney(backtest.cash))
-	fmt.Printf("\tTotal return: %+.1f%%\n", percent * totalReturn)
-	fmt.Printf("\tMax drawdown: %.2f%%\n", percent * backtest.maxDrawdown)
-	fmt.Printf("\tSharpe ratio: %.2f\n", sharpeRatio)
-	fmt.Printf("\tTrades: %d\n\n", backtest.trades)
+	result := backtestResult{
+		start: start,
+		end: end,
+		cash: backtest.cash,
+		totalReturn: totalReturn,
+		maxDrawdown: backtest.maxDrawdown,
+		sharpeRatio: sharpeRatio,
+		trades: backtest.trades,
+	}
+	return result
 }
 
 func (b *backtestData) getMarkets(tags []string) []*PriceHistoryBSON {
@@ -317,55 +378,14 @@ func (b *backtestData) addEquityCurveSample(date time.Time, cash float64) {
 	b.equityCurve = append(b.equityCurve, sample)
 }
 
-func executeStrategy(backtest *backtestData) {
-	tags := []string{
-		"trump",
-		"trump-presidency",
-		"hide-from-new",
-		"weekly",
-		"crypto",
-		"crypto-prices",
-		"bitcoin",
-		"ethereum",
-	}
-	const (
-		triggerPriceMin = 0.8
-		triggerPriceMax = 0.9
-		positionSize = 25.0
-		holdingTime = 15 * 24
-		priceRangeCheck = false
-	)
-	markets := backtest.getMarkets(tags)
-	for _, market := range markets {
-		price, exists := backtest.getPriceErr(market.Slug)
-		if !exists {
-			continue
-		}
-		if price >= triggerPriceMin && price < triggerPriceMax {
-			exists := containsFunc(backtest.positions, func (p backtestPosition) bool {
-				return p.slug == market.Slug
-			})
-			if exists {
-				continue
-			}
-			size := positionSize / price
-			_ = backtest.openPosition(market.Slug, sideNo, size)
-		}
-		for _, position := range backtest.positions {
-			expired := backtest.now.Sub(position.timestamp) >= time.Duration(holdingTime) * time.Hour
-			if priceRangeCheck {
-				price := backtest.getPrice(position.slug)
-				priceInRange := price >= triggerPriceMin && price < triggerPriceMax
-				if expired || !priceInRange {
-					backtest.closePositions(position.slug)
-				}
-			} else {
-				if expired {
-					backtest.closePositions(position.slug)
-				}
-			}
-		}
-	}
+func (r *backtestResult) print() {
+	fmt.Printf("\tStart: %s\n", getDateString(r.start))
+	fmt.Printf("\tEnd: %s\n", getDateString(r.end))
+	fmt.Printf("\tCash: %s\n", formatMoney(r.cash))
+	fmt.Printf("\tTotal return: %+.1f%%\n", percent * r.totalReturn)
+	fmt.Printf("\tMax drawdown: %.2f%%\n", percent * r.maxDrawdown)
+	fmt.Printf("\tSharpe ratio: %.2f\n", r.sharpeRatio)
+	fmt.Printf("\tTrades: %d\n\n", r.trades)
 }
 
 func normalizePrice(price float64) float64 {

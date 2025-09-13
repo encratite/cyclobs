@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -23,6 +25,11 @@ const (
 type keyValuePair[K comparable, V any] struct {
 	key K
 	value V
+}
+
+type taskTuple[T any] struct {
+	index int
+	element T
 }
 
 func readFile(path string) []byte {
@@ -232,5 +239,30 @@ func formatMoney(amount float64) string {
 		}
 		output += string(character)
 	}
+	return output
+}
+
+func parallelMap[A, B any](elements []A, callback func(A) B) []B {
+	workers := runtime.NumCPU()
+	elementChan := make(chan taskTuple[A], len(elements))
+	for i, x := range elements {
+		elementChan <- taskTuple[A]{
+			index: i,
+			element: x,
+		}
+	}
+	close(elementChan)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	output := make([]B, len(elements))
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for task := range elementChan {
+				output[task.index] = callback(task.element)
+			}
+		}()
+	}
+	wg.Wait()
 	return output
 }
