@@ -3,15 +3,21 @@ package cyclobs
 import (
 	"fmt"
 	"log"
+	"math"
 	"time"
+
+	"gonum.org/v1/gonum/stat"
 )
 
 const (
 	backtestMinVolume = 100000.0
-	backtestInitialCash = 10000.0
+	backtestInitialCash = 2000.0
 	backtestPriceMin = 0.001
 	backtestPriceMax = 0.999
 	backtestDebugPositions = false
+	backtestMaxPriceOffset = 48
+	riskFreeRate = 0.045
+	monthsPerYear = 12
 )
 
 type backtestPositionSide int
@@ -32,9 +38,12 @@ type backtestPriceKey struct {
 
 type backtestData struct {
 	cash float64
+	maxCash float64
+	maxDrawdown float64
 	positions []backtestPosition
 	now time.Time
 	trades int
+	equityCurve []equityCurveSample
 	historyMap map[string]*PriceHistoryBSON
 	dailyData map[time.Time]backtestDailyData
 	prices map[backtestPriceKey]float64
@@ -48,11 +57,16 @@ type backtestPosition struct {
 	size float64
 }
 
+type equityCurveSample struct {
+	date time.Time
+	cash float64
+}
+
 func Backtest() {
 	loadConfiguration()
 	historyMap, dailyData, prices := loadBacktestData()
 	start := getDateFromString("2024-01-01")
-	end := getDateFromString("2025-09-10")
+	end := getDateFromString("2025-10-01")
 	runBacktest(start, end, historyMap, dailyData, prices)
 }
 
@@ -99,6 +113,8 @@ func runBacktest(
 ) {
 	backtest := backtestData{
 		cash: backtestInitialCash,
+		maxCash: backtestInitialCash,
+		maxDrawdown: 0.0,
 		positions: []backtestPosition{},
 		now: start,
 		trades: 0,
@@ -106,19 +122,33 @@ func runBacktest(
 		dailyData: dailyData,
 		prices: prices,
 	}
+	sample := equityCurveSample{
+		date: getDate(start),
+		cash: backtestInitialCash,
+	}
+	backtest.equityCurve = []equityCurveSample{
+		sample,
+	}
 	backtestStart := time.Now()
 	for backtest.now.Before(end) {
 		executeStrategy(&backtest)
 		backtest.resolveMarkets()
+		backtest.updateStats()
 		backtest.now = backtest.now.Add(time.Hour)
 	}
+	backtest.addEquityCurveSample(end, backtest.cash)
 	backtestEnd := time.Now()
 	backtestDuration := backtestEnd.Sub(backtestStart)
 	backtest.closeAllPositions()
+	totalReturn := getRateOfChange(backtest.cash, backtestInitialCash)
+	sharpeRatio := backtest.getSharpeRatio()
 	fmt.Printf("\nBacktest concluded after %.1f s\n\n", backtestDuration.Seconds())
 	fmt.Printf("\tStart: %s\n", getDateString(start))
 	fmt.Printf("\tEnd: %s\n", getDateString(end))
 	fmt.Printf("\tCash: %s\n", formatMoney(backtest.cash))
+	fmt.Printf("\tTotal return: %+.1f%%\n", percent * totalReturn)
+	fmt.Printf("\tMax drawdown: %.2f%%\n", percent * backtest.maxDrawdown)
+	fmt.Printf("\tSharpe ratio: %.2f\n", sharpeRatio)
 	fmt.Printf("\tTrades: %d\n\n", backtest.trades)
 }
 
@@ -140,17 +170,43 @@ func (b *backtestData) getMarkets(tags []string) []*PriceHistoryBSON {
 	return historyData
 }
 
-func (b *backtestData) getPrice(slug string) (float64, bool) {
-	priceKey := backtestPriceKey{
-		slug: slug,
-		timestamp: b.now,
+func (b *backtestData) getPriceErr(slug string) (float64, bool) {
+	for i := range backtestMaxPriceOffset {
+		duration := time.Duration(- i) * time.Hour
+		timestamp := b.now.Add(duration)
+		priceKey := backtestPriceKey{
+			slug: slug,
+			timestamp: timestamp,
+		}
+		price, exists := b.prices[priceKey]
+		if !exists {
+			continue
+		}
+		return price, true
 	}
-	price, exists := b.prices[priceKey]
-	return price, exists
+	return 0.0, false
+}
+
+func (b *backtestData) getPrice(slug string) float64 {
+	price, exists := b.getPriceErr(slug)
+	if exists {
+		return price
+	}
+	history, exists := b.historyMap[slug]
+	if exists {
+		const offset = 5
+		for i, sample := range history.History {
+			if i < offset || i >= len(history.History) - offset {
+				fmt.Printf("%d. %s %.3f\n", i + 1, getTimeString(sample.Timestamp), sample.Price)
+			}
+		}
+	}
+	log.Fatalf("Failed to determine the price of %s at %s", slug, getTimeString(b.now))
+	return 0.0
 }
 
 func (b *backtestData) openPosition(slug string, side backtestPositionSide, size float64) bool {
-	price, exists := b.getPrice(slug)
+	price, exists := b.getPriceErr(slug)
 	if !exists {
 		return false
 	}
@@ -186,10 +242,7 @@ func (b *backtestData) closePositions(slug string) bool {
 	newPositions := []backtestPosition{}
 	for _, position := range b.positions {
 		if position.slug == slug {
-			price, exists := b.getPrice(slug)
-			if !exists {
-				log.Fatalf("Failed to close position for %s at %s", slug, b.now)
-			}
+			price := b.getPrice(slug)
 			bid, _ := getBidAsk(price, position.side)
 			b.cash += position.size * bid
 			if backtestDebugPositions {
@@ -206,6 +259,16 @@ func (b *backtestData) closePositions(slug string) bool {
 	return hit
 }
 
+func (b *backtestData) getNetWorth() float64 {
+	netWorth := b.cash
+	for _, position := range b.positions {
+		price := b.getPrice(position.slug)
+		bid, _ := getBidAsk(price, position.side)
+		netWorth += position.size * bid
+	}
+	return netWorth
+}
+
 func (b *backtestData) resolveMarkets() {
 	for _, position := range b.positions {
 		market, exists := b.historyMap[position.slug]
@@ -220,6 +283,40 @@ func (b *backtestData) resolveMarkets() {
 	}
 }
 
+func (b *backtestData) updateStats() {
+	netWorth := b.getNetWorth()
+	b.maxCash = max(b.maxCash, netWorth)
+	drawdown := 1.0 - b.cash / b.maxCash
+	b.maxDrawdown = max(b.maxDrawdown, drawdown)
+	date := getDate(b.now)
+	b.addEquityCurveSample(date, netWorth)
+}
+
+func (b *backtestData) getSharpeRatio() float64 {
+	returns := []float64{}
+	previousSample := b.equityCurve[0]
+	for _, sample := range b.equityCurve[1:] {
+		if sample.date.Month() != previousSample.date.Month() {
+			monthlyReturns := getRateOfChange(sample.cash, previousSample.cash)
+			returns = append(returns, monthlyReturns)
+			previousSample = sample
+		}
+	}
+	annualRate := riskFreeRate
+	monthlyRate := math.Pow(1.0 + annualRate, 1.0 / monthsPerYear) - 1.0
+	sharpeRatio := (stat.Mean(returns, nil) - monthlyRate) / stat.StdDev(returns, nil)
+	annualizedSharpe := math.Sqrt(monthsPerYear) * sharpeRatio
+	return annualizedSharpe
+}
+
+func (b *backtestData) addEquityCurveSample(date time.Time, cash float64) {
+	sample := equityCurveSample{
+		date: date,
+		cash: cash,
+	}
+	b.equityCurve = append(b.equityCurve, sample)
+}
+
 func executeStrategy(backtest *backtestData) {
 	tags := []string{
 		"trump",
@@ -232,15 +329,15 @@ func executeStrategy(backtest *backtestData) {
 		"ethereum",
 	}
 	const (
-		triggerPriceMin = 0.7
-		triggerPriceMax = 0.8
-		positionSize = 100.0
-		holdingTime = 30 * 24
+		triggerPriceMin = 0.8
+		triggerPriceMax = 0.9
+		positionSize = 25.0
+		holdingTime = 15 * 24
 		priceRangeCheck = false
 	)
 	markets := backtest.getMarkets(tags)
 	for _, market := range markets {
-		price, exists := backtest.getPrice(market.Slug)
+		price, exists := backtest.getPriceErr(market.Slug)
 		if !exists {
 			continue
 		}
@@ -257,10 +354,7 @@ func executeStrategy(backtest *backtestData) {
 		for _, position := range backtest.positions {
 			expired := backtest.now.Sub(position.timestamp) >= time.Duration(holdingTime) * time.Hour
 			if priceRangeCheck {
-				price, exists := backtest.getPrice(position.slug)
-				if !exists {
-					continue
-				}
+				price := backtest.getPrice(position.slug)
 				priceInRange := price >= triggerPriceMin && price < triggerPriceMax
 				if expired || !priceInRange {
 					backtest.closePositions(position.slug)
@@ -288,6 +382,9 @@ func convertPrice(price float64, side backtestPositionSide) float64 {
 }
 
 func getBidAsk(price float64, side backtestPositionSide) (float64, float64) {
+	if price < 0.0 || price > 1.0 {
+		log.Fatalf("Encountered an invalid price: %.3f", price)
+	}
 	spread := 0.01
 	if price <= 0.06 || price >= 0.94 {
 		spread = 0.001
