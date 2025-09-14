@@ -3,38 +3,58 @@ package cyclobs
 import (
 	"cmp"
 	"fmt"
+	"log"
 	"slices"
+	"strconv"
+	"strings"
 )
+
+type screenerData struct {
+	market Market
+	tags []EventTag
+}
 
 func Screener() {
 	negRisk := false
-	tagSlugs := []string{
-		"crypto",
-		"crypto-prices",
+	includeTags := []string{
 		"politics",
-		"trump",
 		"geopolitics",
-		"hide-from-new",
+		"world",
+		"trump",
+		"trump-presidency",
+		"finance",
+		"business",
 	}
-	priceMin := 0.7
-	priceMax := 0.8
-	markets := getScreenerMarkets(negRisk, tagSlugs, priceMin, priceMax)
+	excludeTags := []string{
+		"crypto",
+		"mention-markets",
+		"tech",
+	}
+	priceMin := 0.6
+	priceMax := 0.9
+	markets := getScreenerMarkets(negRisk, includeTags, excludeTags, priceMin, priceMax)
 	if markets == nil {
 		return
 	}
-	slices.SortFunc(markets, func (a, b Market) int {
-		return cmp.Compare(b.Volume1Wk, a.Volume1Wk)
+	slices.SortFunc(markets, func (a, b screenerData) int {
+		return cmp.Compare(b.market.Volume1Wk, a.market.Volume1Wk)
 	})
 	fmt.Printf("Found %d matching markets:\n", len(markets))
-	for i, market := range markets {
-		format := "\t%d. %s: LastTradePrice = %.2f, Spread = %.2f, Volume1Wk = %.1f\n"
-		fmt.Printf(format, i + 1, market.Slug, market.LastTradePrice, market.Spread, market.Volume1Wk)
+	for i, data := range markets {
+		market := data.market
+		tags := []string{}
+		for _, tag := range data.tags {
+			tags = append(tags, tag.Slug)
+		}
+		tagString := strings.Join(tags, ", ")
+		format := "\t%d. %s: LastTradePrice = %.2f, Spread = %.2f, Volume1Wk = %.1f, Tags = [%s]\n"
+		fmt.Printf(format, i + 1, market.Slug, market.LastTradePrice, market.Spread, market.Volume1Wk, tagString)
 	}
 }
 
-func getScreenerMarkets(negRisk bool, tagSlugs []string, priceMin, priceMax float64) []Market {
-	marketMap := map[string]Market{}
-	for _, tagSlug := range tagSlugs {
+func getScreenerMarkets(negRisk bool, includeTags []string, excludeTags []string, priceMin, priceMax float64) []screenerData {
+	marketMap := map[string]screenerData{}
+	for _, tagSlug := range includeTags {
 		events, err := getEvents(tagSlug)
 		if err != nil {
 			return nil
@@ -43,16 +63,38 @@ func getScreenerMarkets(negRisk bool, tagSlugs []string, priceMin, priceMax floa
 			if event.Closed || !event.Active || event.NegRisk != negRisk {
 				continue
 			}
+			excluded := false
+			for _, tag := range event.Tags {
+				if contains(excludeTags, tag.Slug) {
+					excluded = true
+					break
+				}
+			}
+			if excluded {
+				break
+			}
 			for _, market := range event.Markets {
 				if market.LastTradePrice >= priceMin && market.LastTradePrice < priceMax {
-					marketMap[market.Slug] = market
+					id, err := strconv.Atoi(event.ID)
+					if err != nil {
+						log.Fatalf("Unable to parse ID: %s", event.ID)
+					}
+					tags, err := getEventTags(id)
+					if err != nil {
+						log.Fatalf("Failed to get event tags: %v", err)
+					}
+					data := screenerData{
+						market: market,
+						tags: tags,
+					}
+					marketMap[market.Slug] = data
 				}
 			}
 		}
 	}
-	markets := []Market{}
-	for _, market := range marketMap {
-		markets = append(markets, market)
+	output := []screenerData{}
+	for _, data := range marketMap {
+		output = append(output, data)
 	}
-	return markets
+	return output
 }

@@ -40,8 +40,7 @@ func (s *decayStrategy) next(backtest *backtestData) {
 			expired := backtest.now.Sub(position.timestamp) >= time.Duration(s.holdingTime) * time.Hour
 			if s.priceRangeCheck {
 				price := backtest.getPrice(position.slug)
-				priceInRange := price >= s.triggerPriceMin && price < s.triggerPriceMax
-				if expired || !priceInRange {
+				if expired || price < 0.4 {
 					backtest.closePositions(position.slug)
 				}
 			} else {

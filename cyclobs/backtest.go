@@ -18,6 +18,7 @@ const (
 	backtestMaxPriceOffset = 48
 	riskFreeRate = 0.045
 	monthsPerYear = 12
+	sharpeRatioMinSamples = 5
 )
 
 type backtestPositionSide int
@@ -47,7 +48,7 @@ type backtestData struct {
 	positions []backtestPosition
 	now time.Time
 	trades int
-	equityCurve []equityCurveSample
+	equityCurve []EquityCurveSample
 	historyMap map[string]*PriceHistoryBSON
 	dailyData map[time.Time]backtestDailyData
 	prices map[backtestPriceKey]float64
@@ -61,9 +62,9 @@ type backtestPosition struct {
 	size float64
 }
 
-type equityCurveSample struct {
-	date time.Time
-	cash float64
+type EquityCurveSample struct {
+	Timestamp time.Time `json:"date"`
+	Cash float64 `json:"cash"`
 }
 
 type backtestResult struct {
@@ -74,26 +75,83 @@ type backtestResult struct {
 	maxDrawdown float64
 	sharpeRatio float64
 	trades int
+	equityCurve []EquityCurveSample
 }
 
 func Backtest() {
 	loadConfiguration()
+	backtestSingle()
+	// backtestHeatmaps()
+}
+
+func backtestSingle() {
+	start := getDateFromString("2024-02-01")
+	end := getDateFromString("2025-09-15")
+	tags := []string{
+		"politics",
+		/*
+		"politics",
+		"geopolitics",
+		"world",
+		"trump",
+		"trump-presidency",
+		"finance",
+		"business",
+		*/
+	}
+	const (
+		positionSize = 15.0
+		holdingTime = 15 * 24
+		priceRangeCheck = true
+		triggerPriceMin = 0.5
+		triggerPriceMax = 0.9
+	)
+	strategy := decayStrategy{
+		tags: tags,
+		triggerPriceMin: triggerPriceMin,
+		triggerPriceMax: triggerPriceMax,
+		positionSize: positionSize,
+		holdingTime: holdingTime,
+		priceRangeCheck: priceRangeCheck,
+	}
+	historyMap, dailyData, prices := loadBacktestData()
+	result := runBacktest(&strategy, start, end, historyMap, dailyData, prices)
+	result.print()
+	dailyEquityCurve := getDailyEquityCurve(result.equityCurve)
+	plotData("equity", dailyEquityCurve)
+}
+
+func backtestHeatmaps() {
 	start := getDateFromString("2024-01-01")
 	end := getDateFromString("2025-10-01")
 	tags := []string{
+		"politics",
+		"geopolitics",
+		"world",
+		"middle-east",
+		"ukraine",
+		"israel",
 		"trump",
 		"trump-presidency",
+		/*
+		"finance",
+		"business",
+		"tech",
+		"ai",
 		"hide-from-new",
+		"recurring",
 		"weekly",
 		"crypto",
 		"crypto-prices",
 		"bitcoin",
 		"ethereum",
+		"solana",
+		*/
 	}
 	const (
 		positionSize = 25.0
-		holdingTime = 15 * 24
-		priceRangeCheck = false
+		holdingTime = 30 * 24
+		priceRangeCheck = true
 	)
 	strategies := []decayStrategy{}
 	for _, tag := range tags {
@@ -128,16 +186,15 @@ func Backtest() {
 	backtestEnd := time.Now()
 	backtestDuration := backtestEnd.Sub(backtestStart)
 	fmt.Printf("Backtest finished after %.1f s\n", backtestDuration.Seconds())
-	plotData(results)
+	plotData("heatmap", results)
 }
 
 func loadBacktestData() (map[string]*PriceHistoryBSON, map[time.Time]backtestDailyData, map[backtestPriceKey]float64) {
 	database := newDatabaseClient()
 	defer database.close()
-	closed := true
 	negRisk := false
 	minVolume := backtestMinVolume
-	historyData := database.getPriceHistoryData(&closed, &negRisk, &minVolume)
+	historyData := database.getPriceHistoryData(nil, &negRisk, &minVolume)
 	historyMap := map[string]*PriceHistoryBSON{}
 	dailyData := map[time.Time]backtestDailyData{}
 	prices := map[backtestPriceKey]float64{}
@@ -184,11 +241,11 @@ func runBacktest(
 		dailyData: dailyData,
 		prices: prices,
 	}
-	sample := equityCurveSample{
-		date: getDate(start),
-		cash: backtestInitialCash,
+	sample := EquityCurveSample{
+		Timestamp: getDate(start),
+		Cash: backtestInitialCash,
 	}
-	backtest.equityCurve = []equityCurveSample{
+	backtest.equityCurve = []EquityCurveSample{
 		sample,
 	}
 	for backtest.now.Before(end) {
@@ -209,6 +266,7 @@ func runBacktest(
 		maxDrawdown: backtest.maxDrawdown,
 		sharpeRatio: sharpeRatio,
 		trades: backtest.trades,
+		equityCurve: backtest.equityCurve,
 	}
 	return result
 }
@@ -349,31 +407,36 @@ func (b *backtestData) updateStats() {
 	b.maxCash = max(b.maxCash, netWorth)
 	drawdown := 1.0 - b.cash / b.maxCash
 	b.maxDrawdown = max(b.maxDrawdown, drawdown)
-	date := getDate(b.now)
-	b.addEquityCurveSample(date, netWorth)
+	b.addEquityCurveSample(b.now, netWorth)
 }
 
 func (b *backtestData) getSharpeRatio() float64 {
 	returns := []float64{}
 	previousSample := b.equityCurve[0]
 	for _, sample := range b.equityCurve[1:] {
-		if sample.date.Month() != previousSample.date.Month() {
-			monthlyReturns := getRateOfChange(sample.cash, previousSample.cash)
+		if sample.Timestamp.Month() != previousSample.Timestamp.Month() {
+			monthlyReturns := getRateOfChange(sample.Cash, previousSample.Cash)
 			returns = append(returns, monthlyReturns)
 			previousSample = sample
 		}
+	}
+	if len(returns) < sharpeRatioMinSamples {
+		return 0.0
 	}
 	annualRate := riskFreeRate
 	monthlyRate := math.Pow(1.0 + annualRate, 1.0 / monthsPerYear) - 1.0
 	sharpeRatio := (stat.Mean(returns, nil) - monthlyRate) / stat.StdDev(returns, nil)
 	annualizedSharpe := math.Sqrt(monthsPerYear) * sharpeRatio
+	if math.IsInf(annualizedSharpe, 0) {
+		return 0.0
+	}
 	return annualizedSharpe
 }
 
 func (b *backtestData) addEquityCurveSample(date time.Time, cash float64) {
-	sample := equityCurveSample{
-		date: date,
-		cash: cash,
+	sample := EquityCurveSample{
+		Timestamp: date,
+		Cash: cash,
 	}
 	b.equityCurve = append(b.equityCurve, sample)
 }
@@ -405,7 +468,7 @@ func getBidAsk(price float64, side backtestPositionSide) (float64, float64) {
 	if price < 0.0 || price > 1.0 {
 		log.Fatalf("Encountered an invalid price: %.3f", price)
 	}
-	spread := 0.01
+	spread := 0.015
 	if price <= 0.06 || price >= 0.94 {
 		spread = 0.001
 	}
@@ -424,4 +487,21 @@ func getSideString(side backtestPositionSide) string {
 	}
 	log.Fatalf("Unknown side in getSideString: %d", side)
 	return "?"
+}
+
+func getDailyEquityCurve(equityCurve []EquityCurveSample) []EquityCurveSample {
+	output := []EquityCurveSample{}
+	for _, sample := range equityCurve {
+		if len(output) > 0 {
+			previousSample := output[len(output) - 1]
+			date := getDate(sample.Timestamp)
+			previousDate := getDate(previousSample.Timestamp)
+			if !date.Equal(previousDate) {
+				output = append(output, sample)
+			}
+		} else {
+			output = append(output, sample)
+		}
+	}
+	return output
 }

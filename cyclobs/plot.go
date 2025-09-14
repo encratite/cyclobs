@@ -8,12 +8,12 @@ import (
 	"os/exec"
 )
 
-func plotData(data any) {
+func plotData(argument string, data any) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		log.Fatalf("Failed to serialize results to JSON: %v", err)
 	}
-	cmd := exec.Command("python", "python/plot.py")
+	cmd := exec.Command("python", "python/plot.py", argument)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		log.Fatalf("Failed to get stdin: %v", err)

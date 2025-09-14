@@ -19,7 +19,7 @@ const (
 	minHistorySize = 10
 	quantileCount = 5
 	dataMinYear = 2000
-	tagSamplesMin = 50
+	tagSamplesMin = 20
 	priceRangeBinsDaysMin = 2
 	spread = 0.01
 	percent = 100.0
@@ -393,12 +393,9 @@ func analyzePriceRangeReturns(negRisk bool, samplingHour int, offset int, histor
 func analyzeCategoryPriceRanges(historyData []PriceHistoryBSON) {
 	negRisk := false
 	samplingHour := 15
-	offset := 1
+	offset := 15
 	limits := [][]float64{
-		{0.7, 0.8},
-		{0.8, 0.85},
-		{0.85, 0.9},
-		{0.9, 0.95},
+		{0.7, 0.9},
 	}
 	for _, rangeMinMax := range limits {
 		rangeMin := rangeMinMax[0]
