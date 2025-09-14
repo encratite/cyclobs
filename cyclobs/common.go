@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -231,13 +232,16 @@ func getRateOfChange(newValue, oldValue float64) float64 {
 }
 
 func formatMoney(amount float64) string {
-	amountString := fmt.Sprintf("%d", int64(amount))
+	amountString := fmt.Sprintf("%d", int64(math.Abs(amount)))
 	output := "$"
 	for i, character := range amountString {
 		if i > 0 && (len(amountString) - i) % 3 == 0 {
 			output += ","
 		}
 		output += string(character)
+	}
+	if amount < 0.0 {
+		output = fmt.Sprintf("-%s", output)
 	}
 	return output
 }

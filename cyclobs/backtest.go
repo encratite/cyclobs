@@ -1,6 +1,7 @@
 package cyclobs
 
 import (
+	"cmp"
 	"fmt"
 	"log"
 	"math"
@@ -15,10 +16,13 @@ const (
 	backtestPriceMin = 0.001
 	backtestPriceMax = 0.999
 	backtestDebugPositions = false
-	backtestMaxPriceOffset = 48
+	backtestMaxPriceOffset = 10 * 24
+	backtestNegRisk = false
+	backtestPrintTags = false
 	riskFreeRate = 0.045
 	monthsPerYear = 12
 	sharpeRatioMinSamples = 5
+	spreadFactor = 1.5
 )
 
 type backtestPositionSide int
@@ -52,6 +56,7 @@ type backtestData struct {
 	historyMap map[string]*PriceHistoryBSON
 	dailyData map[time.Time]backtestDailyData
 	prices map[backtestPriceKey]float64
+	tagPerformance map[string]tagPerformanceData
 }
 
 type backtestPosition struct {
@@ -76,123 +81,19 @@ type backtestResult struct {
 	sharpeRatio float64
 	trades int
 	equityCurve []EquityCurveSample
+	tagPerformance []tagPerformanceData
 }
 
-func Backtest() {
-	loadConfiguration()
-	backtestSingle()
-	// backtestHeatmaps()
-}
-
-func backtestSingle() {
-	start := getDateFromString("2024-02-01")
-	end := getDateFromString("2025-09-15")
-	tags := []string{
-		"politics",
-		/*
-		"politics",
-		"geopolitics",
-		"world",
-		"trump",
-		"trump-presidency",
-		"finance",
-		"business",
-		*/
-	}
-	const (
-		positionSize = 15.0
-		holdingTime = 15 * 24
-		priceRangeCheck = true
-		triggerPriceMin = 0.5
-		triggerPriceMax = 0.9
-	)
-	strategy := decayStrategy{
-		tags: tags,
-		triggerPriceMin: triggerPriceMin,
-		triggerPriceMax: triggerPriceMax,
-		positionSize: positionSize,
-		holdingTime: holdingTime,
-		priceRangeCheck: priceRangeCheck,
-	}
-	historyMap, dailyData, prices := loadBacktestData()
-	result := runBacktest(&strategy, start, end, historyMap, dailyData, prices)
-	result.print()
-	dailyEquityCurve := getDailyEquityCurve(result.equityCurve)
-	plotData("equity", dailyEquityCurve)
-}
-
-func backtestHeatmaps() {
-	start := getDateFromString("2024-01-01")
-	end := getDateFromString("2025-10-01")
-	tags := []string{
-		"politics",
-		"geopolitics",
-		"world",
-		"middle-east",
-		"ukraine",
-		"israel",
-		"trump",
-		"trump-presidency",
-		/*
-		"finance",
-		"business",
-		"tech",
-		"ai",
-		"hide-from-new",
-		"recurring",
-		"weekly",
-		"crypto",
-		"crypto-prices",
-		"bitcoin",
-		"ethereum",
-		"solana",
-		*/
-	}
-	const (
-		positionSize = 25.0
-		holdingTime = 30 * 24
-		priceRangeCheck = true
-	)
-	strategies := []decayStrategy{}
-	for _, tag := range tags {
-		for i := range 10 {
-			strategyTags := []string{
-				tag,
-			}
-			triggerPriceMin := 0.1 * float64(i)
-			triggerPriceMax := 0.1 * float64(i + 1)
-			strategy := decayStrategy{
-				tags: strategyTags,
-				triggerPriceMin: triggerPriceMin,
-				triggerPriceMax: triggerPriceMax,
-				positionSize: positionSize,
-				holdingTime: holdingTime,
-				priceRangeCheck: priceRangeCheck,
-			}
-			strategies = append(strategies, strategy)
-		}
-	}
-	historyMap, dailyData, prices := loadBacktestData()
-	backtestStart := time.Now()
-	results := parallelMap(strategies, func (strategy decayStrategy) DecayStrategyResult {
-		result := runBacktest(&strategy, start, end, historyMap, dailyData, prices)
-		strategyResult := DecayStrategyResult{
-			Tag: strategy.tags[0],
-			Parameter: fmt.Sprintf("%.1f - %.1f", strategy.triggerPriceMin, strategy.triggerPriceMax),
-			SharpeRatio: result.sharpeRatio,
-		}
-		return strategyResult
-	})
-	backtestEnd := time.Now()
-	backtestDuration := backtestEnd.Sub(backtestStart)
-	fmt.Printf("Backtest finished after %.1f s\n", backtestDuration.Seconds())
-	plotData("heatmap", results)
+type tagPerformanceData struct {
+	tag string
+	profit float64
+	trades int
 }
 
 func loadBacktestData() (map[string]*PriceHistoryBSON, map[time.Time]backtestDailyData, map[backtestPriceKey]float64) {
 	database := newDatabaseClient()
 	defer database.close()
-	negRisk := false
+	negRisk := backtestNegRisk
 	minVolume := backtestMinVolume
 	historyData := database.getPriceHistoryData(nil, &negRisk, &minVolume)
 	historyMap := map[string]*PriceHistoryBSON{}
@@ -240,6 +141,7 @@ func runBacktest(
 		historyMap: historyMap,
 		dailyData: dailyData,
 		prices: prices,
+		tagPerformance: map[string]tagPerformanceData{},
 	}
 	sample := EquityCurveSample{
 		Timestamp: getDate(start),
@@ -254,10 +156,13 @@ func runBacktest(
 		backtest.updateStats()
 		backtest.now = backtest.now.Add(time.Hour)
 	}
-	backtest.addEquityCurveSample(end, backtest.cash)
 	backtest.closeAllPositions()
+	backtest.addEquityCurveSample(end, backtest.cash)
 	totalReturn := getRateOfChange(backtest.cash, backtestInitialCash)
 	sharpeRatio := backtest.getSharpeRatio()
+	tagPerformance := sortMapByValue(backtest.tagPerformance, func (a, b tagPerformanceData) int {
+		return cmp.Compare(b.profit, a.profit)
+	})
 	result := backtestResult{
 		start: start,
 		end: end,
@@ -267,6 +172,7 @@ func runBacktest(
 		sharpeRatio: sharpeRatio,
 		trades: backtest.trades,
 		equityCurve: backtest.equityCurve,
+		tagPerformance: tagPerformance,
 	}
 	return result
 }
@@ -279,11 +185,15 @@ func (b *backtestData) getMarkets(tags []string) []*PriceHistoryBSON {
 	}
 	historyData := []*PriceHistoryBSON{}
 	for _, history := range dailyData.historyData {
-		for _, tag := range tags {
-			if contains(history.Tags, tag) {
-				historyData = append(historyData, history)
-				break
+		if len(tags) > 0 {
+			for _, tag := range tags {
+				if contains(history.Tags, tag) {
+					historyData = append(historyData, history)
+					break
+				}
 			}
+		} else {
+			historyData = append(historyData, history)
 		}
 	}
 	return historyData
@@ -364,12 +274,30 @@ func (b *backtestData) closePositions(slug string) bool {
 			price := b.getPrice(slug)
 			bid, _ := getBidAsk(price, position.side)
 			b.cash += position.size * bid
+			profit := position.size * (bid - position.price)
 			if backtestDebugPositions {
 				format := "%s Closed \"%s\" position on %s at %.3f (%s)\n"
 				fmt.Printf(format, getTimeString(b.now), getSideString(position.side), slug, bid, formatMoney(b.cash))
 			}
 			b.trades++
 			hit = true
+			history, exists := b.historyMap[slug]
+			if !exists {
+				continue
+			}
+			for _, tag := range history.Tags {
+				tagPerformance, exists := b.tagPerformance[tag]
+				if !exists {
+					tagPerformance = tagPerformanceData{
+						tag: tag,
+						profit: 0.0,
+						trades: 0,
+					}
+				}
+				tagPerformance.profit += profit
+				tagPerformance.trades++
+				b.tagPerformance[tag] = tagPerformance
+			}
 		} else {
 			newPositions = append(newPositions, position)
 		}
@@ -397,7 +325,22 @@ func (b *backtestData) resolveMarkets() {
 		last := market.History[len(market.History) - 1]
 		timestamp := getHourTimestamp(last.Timestamp)
 		if b.now.Equal(timestamp) || b.now.After(timestamp) {
-			b.closePositions(market.Slug)
+			if market.Closed && market.Outcome != nil {
+				newPositions := []backtestPosition{}
+				for _, position := range b.positions {
+					if position.slug == market.Slug {
+						yes := position.side == sideYes
+						if *market.Outcome == yes {
+							b.cash += position.size
+						}
+					} else {
+						newPositions = append(newPositions, position)
+					}
+				}
+				b.positions = newPositions
+			} else {
+				b.closePositions(market.Slug)
+			}
 		}
 	}
 }
@@ -405,7 +348,7 @@ func (b *backtestData) resolveMarkets() {
 func (b *backtestData) updateStats() {
 	netWorth := b.getNetWorth()
 	b.maxCash = max(b.maxCash, netWorth)
-	drawdown := 1.0 - b.cash / b.maxCash
+	drawdown := 1.0 - netWorth / b.maxCash
 	b.maxDrawdown = max(b.maxDrawdown, drawdown)
 	b.addEquityCurveSample(b.now, netWorth)
 }
@@ -449,6 +392,15 @@ func (r *backtestResult) print() {
 	fmt.Printf("\tMax drawdown: %.2f%%\n", percent * r.maxDrawdown)
 	fmt.Printf("\tSharpe ratio: %.2f\n", r.sharpeRatio)
 	fmt.Printf("\tTrades: %d\n\n", r.trades)
+	if backtestPrintTags {
+		fmt.Printf("\tProfit by tag:\n")
+		for i, performance := range r.tagPerformance {
+			if i >= 25 {
+				break
+			}
+			fmt.Printf("\t\t%d. %s: %s (%d trades)\n", i + 1, performance.tag, formatMoney(performance.profit), performance.trades)
+		}
+	}
 }
 
 func normalizePrice(price float64) float64 {
@@ -465,13 +417,13 @@ func convertPrice(price float64, side backtestPositionSide) float64 {
 }
 
 func getBidAsk(price float64, side backtestPositionSide) (float64, float64) {
-	if price < 0.0 || price > 1.0 {
-		log.Fatalf("Encountered an invalid price: %.3f", price)
-	}
-	spread := 0.015
+	price = max(price, 0.0)
+	price = min(price, 1.0)
+	spread := 0.01
 	if price <= 0.06 || price >= 0.94 {
 		spread = 0.001
 	}
+	spread *= spreadFactor
 	price = convertPrice(price, side)
 	bid := normalizePrice(price - spread)
 	ask := normalizePrice(price + spread)

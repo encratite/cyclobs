@@ -391,7 +391,7 @@ func analyzePriceRangeReturns(negRisk bool, samplingHour int, offset int, histor
 }
 
 func analyzeCategoryPriceRanges(historyData []PriceHistoryBSON) {
-	negRisk := false
+	negRisk := true
 	samplingHour := 15
 	offset := 15
 	limits := [][]float64{
