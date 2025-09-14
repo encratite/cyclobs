@@ -161,7 +161,7 @@ func runBacktest(
 	totalReturn := getRateOfChange(backtest.cash, backtestInitialCash)
 	sharpeRatio := backtest.getSharpeRatio()
 	tagPerformance := sortMapByValue(backtest.tagPerformance, func (a, b tagPerformanceData) int {
-		return cmp.Compare(b.profit, a.profit)
+		return cmp.Compare(b.trades, a.trades)
 	})
 	result := backtestResult{
 		start: start,

@@ -28,7 +28,8 @@ type thresholdStrategy struct {
 }
 
 type jumpStrategy struct {
-	tags []string
+	includeTags []string
+	excludeTags []string
 	threshold1 float64
 	threshold2 float64
 	positionSize float64
@@ -94,8 +95,18 @@ func (s *thresholdStrategy) next(backtest *backtestData) {
 }
 
 func (s *jumpStrategy) next(backtest *backtestData) {
-	markets := backtest.getMarkets(s.tags)
+	markets := backtest.getMarkets(s.includeTags)
 	for _, market := range markets {
+		excluded := false
+		for _, tag := range market.Tags {
+			if contains(s.excludeTags, tag) {
+				excluded = true
+				break
+			}
+		}
+		if excluded {
+			continue
+		}
 		exists := containsFunc(backtest.positions, func (p backtestPosition) bool {
 			return p.slug == market.Slug
 		})

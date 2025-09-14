@@ -154,9 +154,9 @@ func backtestThresholdSingle() {
 }
 
 func backtestJumpSingle() {
-	start := getDateFromString("2024-01-01")
+	start := getDateFromString("2024-10-01")
 	end := getDateFromString("2025-09-15")
-	tags := []string{
+	includeTags := []string{
 		/*
 		"politics",
 		"geopolitics",
@@ -165,14 +165,19 @@ func backtestJumpSingle() {
 		"trump-presidency",
 		*/
 	}
+	excludeTags := []string{
+		"crypto",
+		"mention-markets",
+	}
 	const (
 		threshold1 = 0.3
 		threshold2 = 0.5
-		positionSize = 50.0
+		positionSize = 250.0
 		holdingTime = 1 * 24
 	)
 	strategy := jumpStrategy{
-		tags: tags,
+		includeTags: includeTags,
+		excludeTags: excludeTags,
 		threshold1: threshold1,
 		threshold2: threshold2,
 		positionSize: positionSize,
