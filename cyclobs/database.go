@@ -425,6 +425,43 @@ func (c *databaseClient) getPriceHistoryData(closed *bool, negRisk *bool, minVol
 	return historyData
 }
 
+func (c *databaseClient) getTagsOnly() []PriceHistoryBSON {
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	filter := bson.M{}
+	projection := bson.M{
+		"slug": 1,
+		"tags": 1,
+	}
+	opts := options.Find().SetProjection(projection)
+	cursor, err := c.history.Find(ctx, filter, opts)
+	if err != nil {
+		log.Fatalf("Failed to read price history data: %v", err)
+	}
+	defer cursor.Close(ctx)
+	var historyData []PriceHistoryBSON
+	if err := cursor.All(ctx, &historyData); err != nil {
+		log.Fatalf("Failed to iterate over cursor: %v", err)
+	}
+	return historyData
+}
+
+func (c *databaseClient) getMarkets() []MarketBSON {
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	filter := bson.M{}
+	cursor, err := c.markets.Find(ctx, filter)
+	if err != nil {
+		log.Fatalf("Failed to read markets: %v", err)
+	}
+	defer cursor.Close(ctx)
+	var markets []MarketBSON
+	if err := cursor.All(ctx, &markets); err != nil {
+		log.Fatalf("Failed to iterate over cursor: %v", err)
+	}
+	return markets
+}
+
 func (c *databaseClient) flushBuffer() {
 	if len(c.priceChangeBuffer) == 0 {
 		return

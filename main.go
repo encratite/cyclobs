@@ -15,6 +15,8 @@ func main() {
 	output := flag.String("output", "", "The directory to download the complete price history to, only works in combination with -download")
 	screener := flag.Bool("screener", false, "Filter for events that meet certain criteria")
 	backtest := flag.Bool("backtest", false, "Run backtest")
+	tags := flag.String("tags", "", "Get the tags of an event")
+	relatedTags := flag.String("related", "", "Find related tags")
 	flag.Parse()
 	if *dataMode {
 		cyclobs.DataMode()
@@ -30,6 +32,10 @@ func main() {
 		cyclobs.Screener()
 	} else if *backtest {
 		cyclobs.Backtest()
+	} else if *tags != "" {
+		cyclobs.EventTags(*tags)
+	} else if *relatedTags != "" {
+		cyclobs.RelatedTags(*relatedTags)
 	} else {
 		flag.Usage()
 	}
