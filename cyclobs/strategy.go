@@ -33,6 +33,7 @@ type jumpStrategy struct {
 	threshold1 float64
 	threshold2 float64
 	threshold3 float64
+	stopLoss bool
 	positionSize float64
 	holdingTime int
 	previousPrices map[string]priceSample
@@ -129,8 +130,15 @@ func (s *jumpStrategy) next(backtest *backtestData) {
 		}
 	}
 	for _, position := range backtest.positions {
-	expired := backtest.now.Sub(position.timestamp) >= time.Duration(s.holdingTime) * time.Hour
-		if expired {
+		expired := backtest.now.Sub(position.timestamp) >= time.Duration(s.holdingTime) * time.Hour
+		stopLoss := false
+		if s.stopLoss {
+			price, exists := backtest.getPriceErr(position.slug)
+			if exists {
+				stopLoss = price > s.threshold3
+			}
+		}
+		if expired || stopLoss {
 			backtest.closePositions(position.slug)
 		}
 	}

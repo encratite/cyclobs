@@ -173,8 +173,9 @@ func backtestJumpSingle() {
 		threshold1 = 0.3
 		threshold2 = 0.5
 		threshold3 = 0.7
+		stopLoss = false
 		positionSize = 250.0
-		holdingTime = 1 * 24
+		holdingTime = 24
 	)
 	strategy := jumpStrategy{
 		includeTags: includeTags,
@@ -182,6 +183,7 @@ func backtestJumpSingle() {
 		threshold1: threshold1,
 		threshold2: threshold2,
 		threshold3: threshold3,
+		stopLoss: stopLoss,
 		positionSize: positionSize,
 		holdingTime: holdingTime,
 		previousPrices: map[string]priceSample{},
