@@ -32,6 +32,7 @@ type jumpStrategy struct {
 	excludeTags []string
 	threshold1 float64
 	threshold2 float64
+	threshold3 float64
 	positionSize float64
 	holdingTime int
 	previousPrices map[string]priceSample
@@ -119,7 +120,7 @@ func (s *jumpStrategy) next(backtest *backtestData) {
 		}
 		previous, exists := s.previousPrices[market.Slug]
 		age := backtest.now.Sub(previous.timestamp)
-		if exists && age <= time.Duration(1) * time.Hour && previous.price <= s.threshold1 && price >= s.threshold2 {
+		if exists && age <= time.Duration(1) * time.Hour && previous.price <= s.threshold1 && price >= s.threshold2 && price < s.threshold3 {
 			_ = backtest.openPosition(market.Slug, sideNo, s.positionSize)
 		}
 		s.previousPrices[market.Slug] = priceSample{

@@ -172,6 +172,7 @@ func backtestJumpSingle() {
 	const (
 		threshold1 = 0.3
 		threshold2 = 0.5
+		threshold3 = 0.7
 		positionSize = 250.0
 		holdingTime = 1 * 24
 	)
@@ -180,6 +181,7 @@ func backtestJumpSingle() {
 		excludeTags: excludeTags,
 		threshold1: threshold1,
 		threshold2: threshold2,
+		threshold3: threshold3,
 		positionSize: positionSize,
 		holdingTime: holdingTime,
 		previousPrices: map[string]priceSample{},

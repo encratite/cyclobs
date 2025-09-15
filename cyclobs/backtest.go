@@ -19,6 +19,8 @@ const (
 	backtestMaxPriceOffset = 10 * 24
 	backtestNegRisk = false
 	backtestPrintTags = false
+	backtestPrintHours = true
+	backtestPrintPrice = true
 	riskFreeRate = 0.045
 	monthsPerYear = 12
 	sharpeRatioMinSamples = 5
@@ -56,7 +58,9 @@ type backtestData struct {
 	historyMap map[string]*PriceHistoryBSON
 	dailyData map[time.Time]backtestDailyData
 	prices map[backtestPriceKey]float64
-	tagPerformance map[string]tagPerformanceData
+	tagPerformance map[string]performanceData[string]
+	hourPerformance map[int]performanceData[int]
+	pricePerformance map[int]performanceData[int]
 }
 
 type backtestPosition struct {
@@ -81,13 +85,16 @@ type backtestResult struct {
 	sharpeRatio float64
 	trades int
 	equityCurve []EquityCurveSample
-	tagPerformance []tagPerformanceData
+	tagPerformance []performanceData[string]
+	hourPerformance []performanceData[int]
+	pricePerformance []performanceData[int]
 }
 
-type tagPerformanceData struct {
-	tag string
+type performanceData[K any] struct {
+	key K
 	profit float64
 	trades int
+	returns []float64
 }
 
 func loadBacktestData() (map[string]*PriceHistoryBSON, map[time.Time]backtestDailyData, map[backtestPriceKey]float64) {
@@ -141,7 +148,9 @@ func runBacktest(
 		historyMap: historyMap,
 		dailyData: dailyData,
 		prices: prices,
-		tagPerformance: map[string]tagPerformanceData{},
+		tagPerformance: map[string]performanceData[string]{},
+		hourPerformance: map[int]performanceData[int]{},
+		pricePerformance: map[int]performanceData[int]{},
 	}
 	sample := EquityCurveSample{
 		Timestamp: getDate(start),
@@ -160,8 +169,14 @@ func runBacktest(
 	backtest.addEquityCurveSample(end, backtest.cash)
 	totalReturn := getRateOfChange(backtest.cash, backtestInitialCash)
 	sharpeRatio := backtest.getSharpeRatio()
-	tagPerformance := sortMapByValue(backtest.tagPerformance, func (a, b tagPerformanceData) int {
+	tagPerformance := sortMapByValue(backtest.tagPerformance, func (a, b performanceData[string]) int {
 		return cmp.Compare(b.trades, a.trades)
+	})
+	hourPerformance := sortMapByValue(backtest.hourPerformance, func (a, b performanceData[int]) int {
+		return cmp.Compare(a.key, b.key)
+	})
+	pricePerformance := sortMapByValue(backtest.pricePerformance, func (a, b performanceData[int]) int {
+		return cmp.Compare(a.key, b.key)
 	})
 	result := backtestResult{
 		start: start,
@@ -173,6 +188,8 @@ func runBacktest(
 		trades: backtest.trades,
 		equityCurve: backtest.equityCurve,
 		tagPerformance: tagPerformance,
+		hourPerformance: hourPerformance,
+		pricePerformance: pricePerformance,
 	}
 	return result
 }
@@ -286,18 +303,12 @@ func (b *backtestData) closePositions(slug string) bool {
 				continue
 			}
 			for _, tag := range history.Tags {
-				tagPerformance, exists := b.tagPerformance[tag]
-				if !exists {
-					tagPerformance = tagPerformanceData{
-						tag: tag,
-						profit: 0.0,
-						trades: 0,
-					}
-				}
-				tagPerformance.profit += profit
-				tagPerformance.trades++
-				b.tagPerformance[tag] = tagPerformance
+				addPerformance(tag, profit, position, b.tagPerformance)
 			}
+			hour := position.timestamp.Hour() / 4
+			addPerformance(hour, profit, position, b.hourPerformance)
+			priceBin := int(10 * position.price)
+			addPerformance(priceBin, profit, position, b.pricePerformance)
 		} else {
 			newPositions = append(newPositions, position)
 		}
@@ -391,16 +402,58 @@ func (r *backtestResult) print() {
 	fmt.Printf("\tTotal return: %+.1f%%\n", percent * r.totalReturn)
 	fmt.Printf("\tMax drawdown: %.2f%%\n", percent * r.maxDrawdown)
 	fmt.Printf("\tSharpe ratio: %.2f\n", r.sharpeRatio)
-	fmt.Printf("\tTrades: %d\n\n", r.trades)
+	fmt.Printf("\tTrades: %d\n", r.trades)
 	if backtestPrintTags {
-		fmt.Printf("\tProfit by tag:\n")
+		fmt.Printf("\n\tProfit by tag:\n")
 		for i, performance := range r.tagPerformance {
 			if i >= 25 {
 				break
 			}
-			fmt.Printf("\t\t%d. %s: %s (%d trades)\n", i + 1, performance.tag, formatMoney(performance.profit), performance.trades)
+			fmt.Printf("\t\t%d. %s: %s (%d trades)\n", i + 1, performance.key, formatMoney(performance.profit), performance.trades)
 		}
 	}
+	if backtestPrintHours {
+		fmt.Printf("\n\tProfit by hour:\n")
+		for _, performance := range r.hourPerformance {
+			hour1 := 4 * performance.key
+			hour2 := 4 * (performance.key + 1)
+			profit, riskAdjusted := performance.getStats()
+			format := "\t\t%02d:00 - %02d:00: %.2f RAR, $%.2f/trade, %d trades\n"
+			fmt.Printf(format, hour1, hour2, riskAdjusted, profit, performance.trades)
+		}
+	}
+	if backtestPrintPrice {
+		fmt.Printf("\n\tProfit by initial price:\n")
+		for _, performance := range r.pricePerformance {
+			price1 := float64(performance.key) / 10.0
+			price2 := float64(performance.key + 1) / 10.0
+			profit, riskAdjusted := performance.getStats()
+			fmt.Printf("\t\t%.1f - %.1f: %.2f RAR, $%.2f/trade, %d trades\n", price1, price2, riskAdjusted, profit, performance.trades)
+		}
+	}
+}
+
+func (p* performanceData[K]) getStats() (float64, float64) {
+	profit := p.profit / float64(p.trades)
+	riskAdjusted := stat.Mean(p.returns, nil) / stat.StdDev(p.returns, nil)
+	return profit, riskAdjusted
+}
+
+func addPerformance[K comparable](key K, profit float64, position backtestPosition, performanceMap map[K]performanceData[K]) {
+	returns := profit / (position.price * position.size)
+	performance, exists := performanceMap[key]
+	if !exists {
+		performance = performanceData[K]{
+			key: key,
+			profit: 0.0,
+			trades: 0,
+			returns: []float64{},
+		}
+	}
+	performance.profit += profit
+	performance.trades++
+	performance.returns = append(performance.returns, returns)
+	performanceMap[key] = performance
 }
 
 func normalizePrice(price float64) float64 {
