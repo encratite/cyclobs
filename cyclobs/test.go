@@ -172,7 +172,7 @@ func backtestJumpSingle() {
 	const (
 		threshold1 = 0.3
 		threshold2 = 0.5
-		threshold3 = 0.7
+		threshold3 = 0.75
 		stopLoss = false
 		positionSize = 250.0
 		holdingTime = 24

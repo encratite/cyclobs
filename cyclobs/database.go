@@ -351,24 +351,41 @@ func (c *databaseClient) insertLastTradePrice(message BookMessage, subscription 
 	}
 }
 
-func (c *databaseClient) priceHistoryExists(slug string) bool {
+func (c *databaseClient) priceHistoryCheck(slug string) (bool, bool) {
 	filter := bson.M{
 		"slug": slug,
 	}
 	projection := bson.M{
-		"_id": 1,
+		"closed": 1,
 	}
+	var result bson.M
 	opts := options.FindOne().SetProjection(projection)
 	ctx, cancel := getDatabaseContext()
 	defer cancel()
-	err := c.history.FindOne(ctx, filter, opts).Err()
+	err := c.history.FindOne(ctx, filter, opts).Decode(&result)
 	if err == mongo.ErrNoDocuments {
-		return false
+		return false, false
 	} else if err != nil {
 		log.Printf("Failed to determine if price history exists: %v", err)
-		return true
+		return true, true
 	} else {
-		return true
+		closed, ok := result["closed"].(bool)
+		if !ok {
+			log.Fatalf("Failed to read closed field for %s", slug)
+		}
+		return true, closed
+	}
+}
+
+func (c *databaseClient) deletePriceHistory(slug string) {
+	filter := bson.M{
+		"slug": slug,
+	}
+	ctx, cancel := getDatabaseContext()
+	defer cancel()
+	_, err := c.history.DeleteOne(ctx, filter)
+	if err != nil {
+		log.Fatalf("Failed to delete price history for %s: %v", slug, err)
 	}
 }
 

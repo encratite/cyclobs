@@ -29,10 +29,15 @@ func History() {
 		}
 		for _, market := range markets {
 			slug := market.Slug
-			exists := database.priceHistoryExists(slug)
+			exists, closed := database.priceHistoryCheck(slug)
 			if exists {
-				log.Printf("Skipping \"%s\"", slug)
-				continue
+				if closed {
+					log.Printf("Skipping \"%s\"", slug)
+					continue
+				} else {
+					log.Printf("Updating \"%s\"", slug)
+					database.deletePriceHistory(slug)
+				}
 			}
 			if len(market.Events) == 0 {
 				continue
