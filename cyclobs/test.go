@@ -10,7 +10,8 @@ func Backtest() {
 	// backtestDecaySingle()
 	// backtestDecayHeatmaps()
 	// backtestThresholdSingle()
-	backtestJumpSingle()
+	// backtestJump()
+	backtestMention()
 }
 
 func backtestDecaySingle() {
@@ -153,7 +154,7 @@ func backtestThresholdSingle() {
 	plotData("equity", dailyEquityCurve)
 }
 
-func backtestJumpSingle() {
+func backtestJump() {
 	start := getDateFromString("2024-10-01")
 	end := getDateFromString("2025-09-15")
 	includeTags := []string{
@@ -187,6 +188,29 @@ func backtestJumpSingle() {
 		positionSize: positionSize,
 		holdingTime: holdingTime,
 		previousPrices: map[string]priceSample{},
+	}
+	historyMap, dailyData, prices := loadBacktestData()
+	result := runBacktest(&strategy, start, end, historyMap, dailyData, prices)
+	result.print()
+	dailyEquityCurve := getDailyEquityCurve(result.equityCurve)
+	plotData("equity", dailyEquityCurve)
+}
+
+func backtestMention() {
+	start := getDateFromString("2024-09-01")
+	end := getDateFromString("2025-09-16")
+	const (
+		threshold1 = 0.3
+		threshold2 = 0.7
+		minSamples = 24
+		positionSize = 25.0
+	)
+	strategy := mentionStrategy{
+		threshold1: threshold1,
+		threshold2: threshold2,
+		minSamples: minSamples,
+		positionSize: positionSize,
+		sampleCounts: map[string]int{},
 	}
 	historyMap, dailyData, prices := loadBacktestData()
 	result := runBacktest(&strategy, start, end, historyMap, dailyData, prices)

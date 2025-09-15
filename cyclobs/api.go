@@ -53,7 +53,7 @@ func getMarket(slug string) (Market, error) {
 	return market, nil
 }
 
-func getMarkets(offset, limit int, order, startDateMin string) ([]Market, error) {
+func getMarkets(offset, limit int, order, startDateMin string, tagID *int) ([]Market, error) {
 	url := "https://gamma-api.polymarket.com/markets"
 	parameters := map[string]string{
 		"offset": intToString(int64(offset)),
@@ -61,6 +61,9 @@ func getMarkets(offset, limit int, order, startDateMin string) ([]Market, error)
 		"order": order,
 		"ascending": "false",
 		"start_date_min": startDateMin,
+	}
+	if tagID != nil {
+		parameters["tag_id"] = intToString(int64(*tagID))
 	}
 	markets, err := getJSON[[]Market](url, parameters)
 	if err != nil {

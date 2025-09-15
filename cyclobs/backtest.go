@@ -102,7 +102,7 @@ func loadBacktestData() (map[string]*PriceHistoryBSON, map[time.Time]backtestDai
 	defer database.close()
 	negRisk := backtestNegRisk
 	minVolume := backtestMinVolume
-	historyData := database.getPriceHistoryData(nil, &negRisk, &minVolume)
+	historyData := database.getPriceHistoryData(nil, &negRisk, &minVolume, nil)
 	historyMap := map[string]*PriceHistoryBSON{}
 	dailyData := map[time.Time]backtestDailyData{}
 	prices := map[backtestPriceKey]float64{}
@@ -296,25 +296,29 @@ func (b *backtestData) closePositions(slug string) bool {
 				format := "%s Closed \"%s\" position on %s at %.3f (%s)\n"
 				fmt.Printf(format, getTimeString(b.now), getSideString(position.side), slug, bid, formatMoney(b.cash))
 			}
-			b.trades++
+			b.updatePerformanceStats(slug, profit, position)
 			hit = true
-			history, exists := b.historyMap[slug]
-			if !exists {
-				continue
-			}
-			for _, tag := range history.Tags {
-				addPerformance(tag, profit, position, b.tagPerformance)
-			}
-			hour := position.timestamp.Hour() / 4
-			addPerformance(hour, profit, position, b.hourPerformance)
-			priceBin := int(10 * position.price)
-			addPerformance(priceBin, profit, position, b.pricePerformance)
 		} else {
 			newPositions = append(newPositions, position)
 		}
 	}
 	b.positions = newPositions
 	return hit
+}
+
+func (b *backtestData) updatePerformanceStats(slug string, profit float64, position backtestPosition) {
+	b.trades++
+	history, exists := b.historyMap[slug]
+	if !exists {
+		return
+	}
+	for _, tag := range history.Tags {
+		addPerformance(tag, profit, position, b.tagPerformance)
+	}
+	hour := position.timestamp.Hour() / 4
+	addPerformance(hour, profit, position, b.hourPerformance)
+	priceBin := int(10 * position.price)
+	addPerformance(priceBin, profit, position, b.pricePerformance)
 }
 
 func (b *backtestData) getNetWorth() float64 {
@@ -341,9 +345,13 @@ func (b *backtestData) resolveMarkets() {
 				for _, position := range b.positions {
 					if position.slug == market.Slug {
 						yes := position.side == sideYes
+						payout := 0.0
 						if *market.Outcome == yes {
-							b.cash += position.size
+							payout = 1.0
+							b.cash += position.size * payout
 						}
+						profit := position.size * (payout - position.price)
+						b.updatePerformanceStats(position.slug, profit, position)
 					} else {
 						newPositions = append(newPositions, position)
 					}

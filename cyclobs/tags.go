@@ -66,4 +66,5 @@ func RelatedTags(tag string) {
 		percentage := float64(count.count) / float64(total) * percent
 		fmt.Printf("\t%d. %s: %.1f%% (%d total)\n", i + 1, count.tag, percentage, count.count)
 	}
+	fmt.Printf("Total: %d\n", total)
 }

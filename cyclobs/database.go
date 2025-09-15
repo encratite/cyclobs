@@ -398,7 +398,7 @@ func (c *databaseClient) insertPriceHistory(history PriceHistoryBSON) {
 	}
 }
 
-func (c *databaseClient) getPriceHistoryData(closed *bool, negRisk *bool, minVolume *float64) []PriceHistoryBSON {
+func (c *databaseClient) getPriceHistoryData(closed *bool, negRisk *bool, minVolume *float64, tag *string) []PriceHistoryBSON {
 	ctx, cancel := getDatabaseContext()
 	defer cancel()
 	filter := bson.M{}
@@ -412,6 +412,9 @@ func (c *databaseClient) getPriceHistoryData(closed *bool, negRisk *bool, minVol
 		filter["volume"] = bson.M{
 			"$gte": *minVolume,
 		}
+	}
+	if tag != nil {
+		filter["tags"] = *tag
 	}
 	cursor, err := c.history.Find(ctx, filter)
 	if err != nil {

@@ -17,6 +17,7 @@ func main() {
 	backtest := flag.Bool("backtest", false, "Run backtest")
 	tags := flag.String("tags", "", "Get the tags of an event")
 	relatedTags := flag.String("related", "", "Find related tags")
+	outcomes := flag.Bool("outcomes", false, "Analyze the correlation between prices and outcomes")
 	flag.Parse()
 	if *dataMode {
 		cyclobs.DataMode()
@@ -36,6 +37,8 @@ func main() {
 		cyclobs.EventTags(*tags)
 	} else if *relatedTags != "" {
 		cyclobs.RelatedTags(*relatedTags)
+	} else if *outcomes {
+		cyclobs.Outcomes()
 	} else {
 		flag.Usage()
 	}

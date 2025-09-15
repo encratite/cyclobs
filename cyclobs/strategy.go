@@ -39,6 +39,14 @@ type jumpStrategy struct {
 	previousPrices map[string]priceSample
 }
 
+type mentionStrategy struct {
+	threshold1 float64
+	threshold2 float64
+	minSamples int
+	positionSize float64
+	sampleCounts map[string]int
+}
+
 type priceSample struct {
 	timestamp time.Time
 	price float64
@@ -142,4 +150,30 @@ func (s *jumpStrategy) next(backtest *backtestData) {
 			backtest.closePositions(position.slug)
 		}
 	}
+}
+
+func (s *mentionStrategy) next(backtest *backtestData) {
+	tags := []string{
+		"mention-markets",
+	}
+	markets := backtest.getMarkets(tags)
+	for _, market := range markets {
+		slug := market.Slug
+		exists := containsFunc(backtest.positions, func (p backtestPosition) bool {
+			return p.slug == slug
+		})
+		if exists {
+			continue
+		}
+		price, exists := backtest.getPriceErr(slug)
+		if !exists {
+			continue
+		}
+		s.sampleCounts[slug]++
+		if s.sampleCounts[slug] == s.minSamples {
+			if price >= s.threshold1 && price < s.threshold2 {
+				_ = backtest.openPosition(market.Slug, sideYes, s.positionSize)
+			}
+		}
+	}	
 }

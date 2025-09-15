@@ -80,7 +80,7 @@ func Analyze() {
 	database := newDatabaseClient()
 	defer database.close()
 	closed := true
-	historyData := database.getPriceHistoryData(&closed, nil, nil)
+	historyData := database.getPriceHistoryData(&closed, nil, nil, nil)
 	// analyzeCategories(false, historyData)
 	// analyzeCategories(true, historyData)
 	// analyzeMonthlyDistribution(false, 0, 1, 0.4, 0.6, historyData)
