@@ -12,7 +12,6 @@ const (
 	historyOrder = "volumeNum"
 	historyStartDateMin = "2025-06-01"
 	historyFidelity = 60
-	mentionMarketsTagID = 100343
 )
 
 func History() {
@@ -21,8 +20,7 @@ func History() {
 	defer database.close()
 	for offset := 0; offset < historyMaxOffset; offset += historyPageLimit {
 		log.Printf("Downloading markets at offset %d", offset)
-		tagID := mentionMarketsTagID
-		markets, err := getMarkets(offset, historyPageLimit, historyOrder, historyStartDateMin, &tagID)
+		markets, err := getMarkets(offset, historyPageLimit, historyOrder, historyStartDateMin, nil)
 		if err != nil {
 			return
 		}

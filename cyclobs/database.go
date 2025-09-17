@@ -304,7 +304,7 @@ func (c *databaseClient) insertPriceChange(message BookMessage) {
 			return
 		}
 		priceChange := PriceChangeBSON{
-			AssetID: message.AssetID,
+			AssetID: change.AssetID,
 			ServerTime: serverTime,
 			LocalTime: localTime,
 			Price: price,

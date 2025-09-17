@@ -199,8 +199,7 @@ func (s *tradingSystem) interrupt() {
 }
 
 func (s *tradingSystem) onBookMessage(message BookMessage) {
-	key := message.Market
-	subscription, exists := s.getSubscription(key)
+	subscription, exists := s.getSubscription(message)
 	if !exists {
 		return
 	}
@@ -216,7 +215,7 @@ func (s *tradingSystem) onBookMessage(message BookMessage) {
 		s.database.insertBookMessage(message, subscription)
 	}
 	_ = subscription.validateOrderBook()
-	s.subscriptions[key] = subscription
+	s.subscriptions[message.Market] = subscription
 }
 
 func (s *tradingSystem) onBookEvent(message BookMessage, subscription *marketSubscription) {
@@ -230,7 +229,7 @@ func (s *tradingSystem) onBookEvent(message BookMessage, subscription *marketSub
 func (s *tradingSystem) onPriceChange(message BookMessage, subscription *marketSubscription) {
 	for i, change := range message.PriceChanges {
 		if debugPriceChange {
-			log.Printf("%s[%d]: slug = %s, price = %s, size = %s, side = %s, best_bid = %s, best_ask = %s", priceChangeEvent, i, subscription.slug, change.Price, change.Size, change.Side, change.BestBid, change.BestAsk)
+			log.Printf("%s[%d]: slug = %s, conditionID = %s, assetID = %s, price = %s, size = %s, side = %s, best_bid = %s, best_ask = %s", priceChangeEvent, i, subscription.slug, subscription.conditionID, subscription.assetID, change.Price, change.Size, change.Side, change.BestBid, change.BestAsk)
 		}
 		price, size, err := getPriceSize(change.Price, change.Size)
 		if err != nil {
@@ -354,9 +353,14 @@ func (s *tradingSystem) getMarket(conditionID string) (Market, bool) {
 	}
 }
 
-func (s *tradingSystem) getSubscription(conditionID string) (marketSubscription, bool) {
-	subscription, success := s.subscriptions[conditionID]
-	if !success {
+func (s *tradingSystem) getSubscription(message BookMessage) (marketSubscription, bool) {
+	conditionID := message.Market
+	assetID := message.AssetID
+	subscription, exists := s.subscriptions[conditionID]
+	if !exists {
+		if assetID == "" {
+			log.Printf("Warning: invalid asset ID in subscription %s", conditionID)
+		}
 		market, exists := s.getMarket(conditionID)
 		if !exists {
 			log.Printf("Warning: unable to find matching market with condition ID %s", conditionID)
@@ -364,6 +368,8 @@ func (s *tradingSystem) getSubscription(conditionID string) (marketSubscription,
 		}
 		subscription = marketSubscription{
 			slug: market.Slug,
+			conditionID: conditionID,
+			assetID: assetID,
 			negRisk: market.NegRisk,
 			prices: deque.Deque[priceEvent]{},
 			asks: treemap.NewWith(decimalComparator),
