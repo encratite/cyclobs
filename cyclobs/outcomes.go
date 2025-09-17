@@ -14,7 +14,7 @@ type outcomeStats struct {
 }
 
 func Outcomes() {
-	analyzeOutcomes("mention-markets")
+	analyzeOutcomes("politics")
 }
 
 func analyzeOutcomes(tag string) {
@@ -49,10 +49,10 @@ func analyzeOutcomes(tag string) {
 		yesOutcomes: 0,
 	}
 	for _, history := range historyData {
-		if len(history.History) < priceOffset || history.Outcome == nil {
+		if len(history.History) <= priceOffset || history.Outcome == nil {
 			continue
 		}
-		price := history.History[len(history.History) - priceOffset].Price
+		price := history.History[priceOffset].Price
 		outcome := *history.Outcome
 		for i := range priceBins {
 			priceBins[i].add(price, outcome)

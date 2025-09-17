@@ -46,6 +46,8 @@ type tradingSystem struct {
 
 type marketSubscription struct {
 	slug string
+	conditionID string
+	assetID string
 	negRisk bool
 	prices deque.Deque[priceEvent]
 	bids *treemap.Map
@@ -137,6 +139,9 @@ func (s *tradingSystem) runTriggerMode() {
 	}
 	markets := []Market{}
 	for _, position := range positions {
+		if position.PercentPnL == -100.0 {
+			continue
+		}
 		exists := containsFunc(markets, func (m Market) bool {
 			return m.Slug == position.Slug
 		})
@@ -176,11 +181,7 @@ func (s *tradingSystem) runTriggerMode() {
 }
 
 func (s *tradingSystem) subscribe(assetIDs []string) {
-	err := subscribeToMarkets(assetIDs, func (messages []BookMessage) {
-		for _, message := range messages {
-			s.onBookMessage(message)
-		}
-	})
+	err := subscribeToMarkets(assetIDs, s.onBookMessage)
 	if err != nil {
 		log.Printf("Subscription error: %v", err)
 	}
@@ -198,7 +199,7 @@ func (s *tradingSystem) interrupt() {
 }
 
 func (s *tradingSystem) onBookMessage(message BookMessage) {
-	key := message.AssetID
+	key := message.Market
 	subscription, exists := s.getSubscription(key)
 	if !exists {
 		return
@@ -227,9 +228,9 @@ func (s *tradingSystem) onBookEvent(message BookMessage, subscription *marketSub
 }
 
 func (s *tradingSystem) onPriceChange(message BookMessage, subscription *marketSubscription) {
-	for i, change := range message.Changes {
+	for i, change := range message.PriceChanges {
 		if debugPriceChange {
-			log.Printf("%s[%d]: slug = %s, price = %s, size = %s, side = %s", priceChangeEvent, i, subscription.slug, change.Price, change.Size, change.Side)
+			log.Printf("%s[%d]: slug = %s, price = %s, size = %s, side = %s, best_bid = %s, best_ask = %s", priceChangeEvent, i, subscription.slug, change.Price, change.Size, change.Side, change.BestBid, change.BestAsk)
 		}
 		price, size, err := getPriceSize(change.Price, change.Size)
 		if err != nil {
@@ -342,13 +343,9 @@ func (s *tradingSystem) processTrigger(price decimal.Decimal, side string, subsc
 	}
 }
 
-func (s *tradingSystem) getMarket(assetID string) (Market, bool) {
+func (s *tradingSystem) getMarket(conditionID string) (Market, bool) {
 	market, exists := find(s.markets, func (market Market) bool {
-		yesTokenID, exists := getYesTokenID(market)
-		if !exists {
-			return false
-		}
-		return yesTokenID == assetID
+		return market.ConditionID == conditionID
 	})
 	if exists {
 		return market, true
@@ -357,12 +354,12 @@ func (s *tradingSystem) getMarket(assetID string) (Market, bool) {
 	}
 }
 
-func (s *tradingSystem) getSubscription(assetID string) (marketSubscription, bool) {
-	subscription, success := s.subscriptions[assetID]
+func (s *tradingSystem) getSubscription(conditionID string) (marketSubscription, bool) {
+	subscription, success := s.subscriptions[conditionID]
 	if !success {
-		market, exists := s.getMarket(assetID)
+		market, exists := s.getMarket(conditionID)
 		if !exists {
-			log.Printf("Warning: unable to find matching market for asset ID %s", assetID)
+			log.Printf("Warning: unable to find matching market with condition ID %s", conditionID)
 			return marketSubscription{}, false
 		}
 		subscription = marketSubscription{

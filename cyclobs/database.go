@@ -68,6 +68,8 @@ type PriceChangeBSON struct {
 	Price bson.Decimal128 `bson:"price"`
 	Size bson.Decimal128 `bson:"size"`
 	Buy bool `bson:"buy"`
+	BestBid bson.Decimal128 `bson:"best_bid"`
+	BestAsk bson.Decimal128 `bson:"best_ask"`
 }
 
 type LastTradePrice struct {
@@ -288,8 +290,12 @@ func (c *databaseClient) insertPriceChange(message BookMessage) {
 		return
 	}
 	localTime := time.Now()
-	for _, change := range message.Changes {
+	for _, change := range message.PriceChanges {
 		price, size, err := convertPriceSize(change.Price, change.Size)
+		if err != nil {
+			return
+		}
+		bestBid, bestAsk, err := convertPriceSize(change.BestBid, change.BestAsk)
 		if err != nil {
 			return
 		}
@@ -304,6 +310,8 @@ func (c *databaseClient) insertPriceChange(message BookMessage) {
 			Price: price,
 			Size: size,
 			Buy: buy,
+			BestBid: bestBid,
+			BestAsk: bestAsk,
 		}
 		c.priceChangeBuffer = append(c.priceChangeBuffer, priceChange)
 	}
@@ -520,17 +528,37 @@ func convertOrderSummaries(summaries []OrderSummary) ([]PriceLevel, error) {
 }
 
 func convertPriceSize(price, size string) (bson.Decimal128, bson.Decimal128, error) {
-	priceDecimal, err := bson.ParseDecimal128(price)
+	priceDecimal, err := convertDecimal(price, "price")
 	if err != nil {
-		log.Printf("Warning: failed to convert price in book message: %s", price)
 		return bson.Decimal128{}, bson.Decimal128{}, err
 	}
-	sizeDecimal, err := bson.ParseDecimal128(size)
+	sizeDecimal, err := convertDecimal(size, "size")
 	if err != nil {
-		log.Printf("Warning: failed to convert size in book message: %s", size)
 		return bson.Decimal128{}, bson.Decimal128{}, err
 	}
 	return priceDecimal, sizeDecimal, nil
+}
+
+func convertBestBidAsk(bestBid, bestAsk string) (bson.Decimal128, bson.Decimal128, error) {
+	priceDecimal, err := convertDecimal(bestBid, "best bid")
+	if err != nil {
+		return bson.Decimal128{}, bson.Decimal128{}, err
+	}
+	sizeDecimal, err := convertDecimal(bestAsk, "best ask")
+	if err != nil {
+		return bson.Decimal128{}, bson.Decimal128{}, err
+	}
+	return priceDecimal, sizeDecimal, nil
+}
+
+
+func convertDecimal(value string, name string) (bson.Decimal128, error) {
+	priceDecimal, err := bson.ParseDecimal128(value)
+	if err != nil {
+		log.Printf("Warning: failed to convert %s in book message: %s", name, value)
+		return bson.Decimal128{}, err
+	}
+	return priceDecimal, err
 }
 
 func convertVolume(subscription marketSubscription) (bson.Decimal128, error) {

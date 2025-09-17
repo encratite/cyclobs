@@ -184,7 +184,7 @@ type BookMessage struct {
 	Hash string `json:"hash"`
 	Bids []OrderSummary `json:"bids"`
 	Asks []OrderSummary `json:"asks"`
-	Changes []PriceChange `json:"changes"`
+	PriceChanges []PriceChange `json:"price_changes"`
 	EventType string `json:"event_type"`
 	FeeRateBPs string `json:"fee_rate_bps"`
 	Price string `json:"price"`
@@ -198,9 +198,13 @@ type OrderSummary struct {
 }
 
 type PriceChange struct {
+	AssetID string `json:"asset_id"`
 	Price string `json:"price"`
-	Side string `json:"side"`
 	Size string `json:"size"`
+	Side string `json:"side"`
+	Hash string `json:"hash"`
+	BestBid string `json:"best_bid"`
+	BestAsk string `json:"best_ask"`
 }
 
 type Position struct {

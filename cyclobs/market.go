@@ -11,7 +11,7 @@ import (
 
 const marketChannelLimit = 500
 
-func subscribeToMarkets(assetIDs []string, callback func ([]BookMessage)) error {
+func subscribeToMarkets(assetIDs []string, callback func (BookMessage)) error {
 	if len(assetIDs) > marketChannelLimit {
 		log.Fatalf("Too many assets to subscribe to (%d)", len(assetIDs))
 	}
@@ -53,15 +53,25 @@ func subscribeToMarkets(assetIDs []string, callback func ([]BookMessage)) error 
 		if messageString == "PONG" {
 			continue
 		}
-		var bookMessages []BookMessage
-		err = json.Unmarshal(message, &bookMessages)
-		if err != nil {
-			log.Printf("Failed to deserialize message: %s", messageString)
-			return fmt.Errorf("Failed to deserialize book message: %v\n", err)
+		if len(messageString) > 0 && messageString[0] == '{' {
+			var bookMessage BookMessage
+			err = json.Unmarshal(message, &bookMessage)
+			if err != nil {
+				return fmt.Errorf("Failed to deserialize book message: %v\n", err)
+			}
+			callback(bookMessage)
+		} else {
+			var bookMessages []BookMessage
+			err = json.Unmarshal(message, &bookMessages)
+			if err != nil {
+				return fmt.Errorf("Failed to deserialize multiple book messages: %v\n", err)
+			}
+			if len(bookMessages) > 1 {
+				log.Printf("Received %d book messages", len(bookMessages))
+			}
+			for _, bookMessage := range bookMessages {
+				callback(bookMessage)
+			}
 		}
-		if len(bookMessages) > 1 {
-			log.Printf("Received %d book messages", len(bookMessages))
-		}
-		callback(bookMessages)
 	}
 }

@@ -197,13 +197,13 @@ func backtestJump() {
 }
 
 func backtestMention() {
-	start := getDateFromString("2024-09-01")
-	end := getDateFromString("2025-09-16")
+	start := getDateFromString("2024-10-01")
+	end := getDateFromString("2025-06-15")
 	const (
 		threshold1 = 0.3
 		threshold2 = 0.7
 		minSamples = 24
-		positionSize = 25.0
+		positionSize = 75.0
 	)
 	strategy := mentionStrategy{
 		threshold1: threshold1,
