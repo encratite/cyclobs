@@ -9,6 +9,7 @@ import (
 func main() {
 	dataMode := flag.Bool("data", false, "Run data collection mode without any automated trading")
 	triggerMode := flag.Bool("trigger", false, "Run automated trading system using take profit/stop-loss trigger levels defined in the configuration file")
+	jump := flag.Bool("jump", false, "Run automated trading system using the jump strategy")
 	history := flag.Bool("history", false, "Download recent historical data")
 	analyze := flag.Bool("analyze", false, "Analyze historical data previously downloaded using -history")
 	download := flag.String("download", "", "Download the complete price history of the specified event slug, also requires -output")
@@ -23,6 +24,8 @@ func main() {
 		cyclobs.DataMode()
 	} else if *triggerMode {
 		cyclobs.TriggerMode()
+	} else if *jump {
+		cyclobs.Jump()
 	} else if *history {
 		cyclobs.History()
 	} else if *analyze {

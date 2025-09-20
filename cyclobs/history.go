@@ -64,8 +64,10 @@ func History() {
 			if endDateErr != nil {
 				endDatePointer = &endDate
 			}
-			tokenIDs := getCLOBTokenIDs(market)
-			yesID := tokenIDs[0]
+			yesID, err := getCLOBTokenID(market, true)
+			if err != nil {
+				continue
+			}
 			history, err := getPriceHistory(yesID, startDate, historyFidelity)
 			dbSamples := []PriceHistorySampleBSON{}
 			for _, s := range history.History {

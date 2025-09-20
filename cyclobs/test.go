@@ -10,8 +10,8 @@ func Backtest() {
 	// backtestDecaySingle()
 	// backtestDecayHeatmaps()
 	// backtestThresholdSingle()
-	// backtestJump()
-	backtestMention()
+	backtestJump()
+	// backtestMention()
 }
 
 func backtestDecaySingle() {

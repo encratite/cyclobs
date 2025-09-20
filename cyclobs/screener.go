@@ -7,6 +7,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/fatih/color"
 )
 
 type screenerData struct {
@@ -15,24 +18,9 @@ type screenerData struct {
 }
 
 func Screener() {
-	negRisk := false
-	includeTags := []string{
-		"politics",
-		"geopolitics",
-		"world",
-		"trump",
-		"trump-presidency",
-		"finance",
-		"business",
-	}
-	excludeTags := []string{
-		"crypto",
-		"mention-markets",
-		"tech",
-	}
-	priceMin := 0.6
-	priceMax := 0.9
-	markets := getScreenerMarkets(negRisk, includeTags, excludeTags, priceMin, priceMax)
+	loadConfiguration()
+	config := configuration.Jump
+	markets := getScreenerMarkets(false, config.IncludeTags, config.ExcludeTags, config.Threshold2.InexactFloat64(), config.Threshold3.InexactFloat64())
 	if markets == nil {
 		return
 	}
@@ -47,54 +35,92 @@ func Screener() {
 			tags = append(tags, tag.Slug)
 		}
 		tagString := strings.Join(tags, ", ")
-		format := "\t%d. %s: LastTradePrice = %.2f, Spread = %.2f, Volume1Wk = %.1f, Tags = [%s]\n"
-		fmt.Printf(format, i + 1, market.Slug, market.LastTradePrice, market.Spread, market.Volume1Wk, tagString)
+		yesID, err := getCLOBTokenID(market, true)
+		if err != nil {
+			continue
+		}
+		start := time.Now().UTC().Add(time.Duration(- 1) * time.Hour)
+		history, err := getPriceHistory(yesID, start, historyFidelitySingle)
+		if err != nil {
+			return
+		}
+		if len(history.History) == 0 {
+			continue
+		}
+		firstPrice := history.History[0]
+		format := "%d. %s: firstPrice = %.2f, LastTradePrice = %.2f, Spread = %.2f, Volume1Wk = %.1f, Tags = [%s]"
+		text := fmt.Sprintf(format, i + 1, market.Slug, firstPrice.Price, market.LastTradePrice, market.Spread, market.Volume1Wk, tagString)
+		if firstPrice.Price <= config.Threshold1.InexactFloat64() {
+			color.Green("%s\n", text)
+			beep()
+		} else {
+			fmt.Printf("%s\n", text)
+		}
 	}
 }
 
 func getScreenerMarkets(negRisk bool, includeTags []string, excludeTags []string, priceMin, priceMax float64) []screenerData {
 	marketMap := map[string]screenerData{}
-	for _, tagSlug := range includeTags {
-		events, err := getEvents(tagSlug)
-		if err != nil {
-			return nil
-		}
-		for _, event := range events {
-			if event.Closed || !event.Active || event.NegRisk != negRisk {
-				continue
-			}
-			excluded := false
-			for _, tag := range event.Tags {
-				if contains(excludeTags, tag.Slug) {
-					excluded = true
-					break
-				}
-			}
-			if excluded {
+	if len(includeTags) > 0 {
+		for _, tagSlug := range includeTags {
+			err := processScreenerEvents(&tagSlug, negRisk, excludeTags, priceMin, priceMax, &marketMap)
+			if err != nil {
 				break
 			}
-			for _, market := range event.Markets {
-				if market.LastTradePrice >= priceMin && market.LastTradePrice < priceMax {
-					id, err := strconv.Atoi(event.ID)
-					if err != nil {
-						log.Fatalf("Unable to parse ID: %s", event.ID)
-					}
-					tags, err := getEventTags(id)
-					if err != nil {
-						log.Fatalf("Failed to get event tags: %v", err)
-					}
-					data := screenerData{
-						market: market,
-						tags: tags,
-					}
-					marketMap[market.Slug] = data
-				}
-			}
 		}
+	} else {
+		_ = processScreenerEvents(nil, negRisk, excludeTags, priceMin, priceMax, &marketMap)
 	}
 	output := []screenerData{}
 	for _, data := range marketMap {
 		output = append(output, data)
 	}
 	return output
+}
+
+func processScreenerEvents(
+	tagSlug *string,
+	negRisk bool,
+	excludeTags []string,
+	priceMin float64,
+	priceMax float64,
+	marketMap *map[string]screenerData,
+) error {
+	events, err := getEvents(tagSlug)
+	if err != nil {
+		return err
+	}
+	for _, event := range events {
+		if event.Closed || !event.Active || event.NegRisk != negRisk {
+			continue
+		}
+		excluded := false
+		for _, tag := range event.Tags {
+			if contains(excludeTags, tag.Slug) {
+				excluded = true
+				break
+			}
+		}
+		if excluded {
+			continue
+		}
+		for _, market := range event.Markets {
+			if market.LastTradePrice >= priceMin && market.LastTradePrice < priceMax {
+				id, err := strconv.Atoi(event.ID)
+				if err != nil {
+					log.Fatalf("Unable to parse ID: %s", event.ID)
+				}
+				tags, err := getEventTags(id)
+				if err != nil {
+					log.Fatalf("Failed to get event tags: %v", err)
+				}
+				data := screenerData{
+					market: market,
+					tags: tags,
+				}
+				(*marketMap)[market.Slug] = data
+			}
+		}
+	}
+	return nil
 }

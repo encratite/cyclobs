@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	eventsLimit = 50
+	eventsLimit = 250
 	reconnectDelay = 5
 	bookEvent = "book"
 	priceChangeEvent = "price_change"
@@ -229,7 +229,8 @@ func (s *tradingSystem) onBookEvent(message BookMessage, subscription *marketSub
 func (s *tradingSystem) onPriceChange(message BookMessage, subscription *marketSubscription) {
 	for i, change := range message.PriceChanges {
 		if debugPriceChange {
-			log.Printf("%s[%d]: slug = %s, conditionID = %s, assetID = %s, price = %s, size = %s, side = %s, best_bid = %s, best_ask = %s", priceChangeEvent, i, subscription.slug, subscription.conditionID, subscription.assetID, change.Price, change.Size, change.Side, change.BestBid, change.BestAsk)
+			format := "%s[%d]: slug = %s, conditionID = %s, assetID = %s, price = %s, size = %s, side = %s, best_bid = %s, best_ask = %s"
+			log.Printf(format, priceChangeEvent, i, subscription.slug, subscription.conditionID, subscription.assetID, change.Price, change.Size, change.Side, change.BestBid, change.BestAsk)
 		}
 		price, size, err := getPriceSize(change.Price, change.Size)
 		if err != nil {
@@ -456,7 +457,7 @@ func getEventMarkets() ([]Market, map[string]string, error) {
 	markets := []Market{}
 	eventSlugMap := map[string]string{}
 	for _, tagSlug := range configuration.Data.TagSlugs {
-		events, err := getEvents(tagSlug)
+		events, err := getEvents(&tagSlug)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -505,8 +506,8 @@ func printMarketStats(markets []Market) {
 func getAssetIDs(markets []Market) []string {
 	assetIDs := []string{}
 	for _, market := range markets {
-		yesTokenID, exists := getYesTokenID(market)
-		if !exists {
+		yesTokenID, err := getCLOBTokenID(market, true)
+		if err != nil {
 			continue
 		}
 		assetIDs = append(assetIDs, yesTokenID)
@@ -516,24 +517,23 @@ func getAssetIDs(markets []Market) []string {
 
 var clobTokenIdPattern = regexp.MustCompile(`\d+`)
 
-func getCLOBTokenIDs(market Market) []string {
-	tokenIds := []string{}
+func getCLOBTokenID(market Market, yes bool) (string, error) {
+	tokenIDs := []string{}
 	matches := clobTokenIdPattern.FindAllStringSubmatch(market.CLOBTokenIDs, -1)
 	for _, match := range matches {
 		tokenId := match[0]
-		tokenIds = append(tokenIds, tokenId)
+		tokenIDs = append(tokenIDs, tokenId)
 	}
-	return tokenIds
-}
-
-func getYesTokenID(market Market) (string, bool) {
-	tokenIDs := getCLOBTokenIDs(market)
 	if len(tokenIDs) != 2 {
-		log.Printf("Warning: Unable to extract token ID for market %s", market.Slug)
-		return "", false
+		err := fmt.Errorf("unable to extract token ID: slug = %s, yes = %t, CLOBTokenIDs = %s", market.Slug, yes, market.CLOBTokenIDs)
+		log.Printf("Warning: %v", err)
+		return "", err
 	}
-	yesTokenID := tokenIDs[0]
-	return yesTokenID, true
+	if yes {
+		return tokenIDs[0], nil
+	} else {
+		return tokenIDs[1], nil
+	}
 }
 
 func putPriceLevels(destination *treemap.Map, source []OrderSummary) {

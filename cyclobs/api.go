@@ -6,14 +6,16 @@ import (
 	"time"
 )
 
-func getEvents(tagSlug string) ([]Event, error) {
+func getEvents(tagSlug *string) ([]Event, error) {
 	url := "https://gamma-api.polymarket.com/events/pagination"
 	parameters := map[string]string{
 		"limit": strconv.FormatInt(eventsLimit, 10),
 		"archived": "false",
-		"tag_slug": tagSlug,
 		"order": "volume24hr",
 		"ascending": "false",
+	}
+	if tagSlug != nil {
+		parameters["tag_slug"] = *tagSlug
 	}
 	events, err := getJSON[EventsResponse](url, parameters)
 	if err != nil {

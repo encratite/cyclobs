@@ -24,8 +24,10 @@ func Download(slug string, directory string) {
 			log.Fatalf("Unable to parse start date: \"%s\"", market.StartDate)
 			return
 		}
-		tokenIDs := getCLOBTokenIDs(market)
-		yesID := tokenIDs[0]
+		yesID, err := getCLOBTokenID(market, true)
+		if err != nil {
+			return
+		}
 		history, err := getPriceHistory(yesID, startDate, historyFidelitySingle)
 		if err != nil {
 			return

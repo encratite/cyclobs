@@ -14,6 +14,7 @@ type Configuration struct {
 	Data DataModeConfiguration `yaml:"data"`
 	Database DatabaseConfiguration `yaml:"database"`
 	Trigger TriggerModeConfiguration `yaml:"trigger"`
+	Jump JumpConfiguration `yaml:"jump"`
 }
 
 type Credentials struct {
@@ -44,6 +45,14 @@ type Trigger struct {
 	TakeProfitLimit *SerializableDecimal `yaml:"takeProfitLimit"`
 	StopLoss *SerializableDecimal `yaml:"stopLoss"`
 	StopLossLimit *SerializableDecimal `yaml:"stopLossLimit"`
+}
+
+type JumpConfiguration struct {
+	Threshold1 *SerializableDecimal `yaml:"threshold1"`
+	Threshold2 *SerializableDecimal `yaml:"threshold2"`
+	Threshold3 *SerializableDecimal `yaml:"threshold3"`
+	IncludeTags []string `yaml:"includeTags"`
+	ExcludeTags []string `yaml:"excludeTags"`
 }
 
 type DatabaseConfiguration struct {
@@ -98,6 +107,24 @@ func (c *TriggerModeConfiguration) validate() {
 	}
 	for _, trigger := range c.Triggers {
 		trigger.validate()
+	}
+}
+
+func (c *JumpConfiguration) validate() {
+	thresholds := []*SerializableDecimal{
+		c.Threshold1,
+		c.Threshold2,
+		c.Threshold3,
+	}
+	priceMin := decimal.Zero
+	priceMax := decimalConstant("1.0")
+	for _, threshold := range thresholds {
+		if threshold == nil {
+			log.Fatalf("Missing threshold in jump configuration")
+		}
+		if threshold.LessThanOrEqual(priceMin) || threshold.GreaterThanOrEqual(priceMax) {
+			log.Fatalf("Invalid threshold in jump configuration")
+		}
 	}
 }
 
