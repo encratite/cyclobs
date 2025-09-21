@@ -158,6 +158,7 @@ func backtestJump() {
 	start := getDateFromString("2024-10-01")
 	end := getDateFromString("2025-09-15")
 	includeTags := []string{
+		"politics",
 		/*
 		"politics",
 		"geopolitics",
@@ -168,6 +169,8 @@ func backtestJump() {
 	}
 	excludeTags := []string{
 		"crypto",
+		"sports",
+		"games",
 		"mention-markets",
 	}
 	const (

@@ -7,6 +7,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/gammazero/deque"
 	"gonum.org/v1/gonum/stat"
 )
 
@@ -22,6 +23,8 @@ const (
 	backtestPrintHours = true
 	backtestPrintWeekdays = true
 	backtestPrintPrice = true
+	backtestPrintRecentTrades = true
+	backtestRecentTradesLimit = 10
 	riskFreeRate = 0.045
 	monthsPerYear = 12
 	sharpeRatioMinSamples = 5
@@ -63,6 +66,7 @@ type backtestData struct {
 	hourPerformance map[int]performanceData[int]
 	weekdayPerformance map[int]performanceData[int]
 	pricePerformance map[int]performanceData[int]
+	recentTrades deque.Deque[backtestTrade]
 }
 
 type backtestPosition struct {
@@ -91,6 +95,7 @@ type backtestResult struct {
 	hourPerformance []performanceData[int]
 	weekdayPerformance []performanceData[int]
 	pricePerformance []performanceData[int]
+	recentTrades deque.Deque[backtestTrade]
 }
 
 type performanceData[K any] struct {
@@ -98,6 +103,12 @@ type performanceData[K any] struct {
 	profit float64
 	trades int
 	returns []float64
+}
+
+type backtestTrade struct {
+	timestamp time.Time
+	slug string
+	profit float64
 }
 
 func loadBacktestData() (map[string]*PriceHistoryBSON, map[time.Time]backtestDailyData, map[backtestPriceKey]float64) {
@@ -155,6 +166,7 @@ func runBacktest(
 		hourPerformance: map[int]performanceData[int]{},
 		weekdayPerformance: map[int]performanceData[int]{},
 		pricePerformance: map[int]performanceData[int]{},
+		recentTrades: deque.Deque[backtestTrade]{},
 	}
 	sample := EquityCurveSample{
 		Timestamp: getDate(start),
@@ -198,6 +210,7 @@ func runBacktest(
 		hourPerformance: hourPerformance,
 		weekdayPerformance: weekdayPerformance,
 		pricePerformance: pricePerformance,
+		recentTrades: backtest.recentTrades,
 	}
 	return result
 }
@@ -305,6 +318,17 @@ func (b *backtestData) closePositions(slug string) bool {
 				fmt.Printf(format, getTimeString(b.now), getSideString(position.side), slug, bid, formatMoney(b.cash))
 			}
 			b.updatePerformanceStats(slug, profit, position)
+			if backtestPrintRecentTrades {
+				trade := backtestTrade{
+					timestamp: position.timestamp,
+					slug: slug,
+					profit: profit,
+				}
+				b.recentTrades.PushBack(trade)
+				for b.recentTrades.Len() > backtestRecentTradesLimit {
+					b.recentTrades.PopFront()
+				}
+			}
 			hit = true
 		} else {
 			newPositions = append(newPositions, position)
@@ -456,6 +480,12 @@ func (r *backtestResult) print() {
 			price2 := float64(performance.key + 1) / 10.0
 			profit, riskAdjusted := performance.getStats()
 			fmt.Printf("\t\t%.1f - %.1f: %.2f RAR, $%.2f/trade, %d trades\n", price1, price2, riskAdjusted, profit, performance.trades)
+		}
+	}
+	if backtestPrintRecentTrades {
+		fmt.Printf("\n\tRecent trades:\n")
+		for trade := range r.recentTrades.Iter() {
+			fmt.Printf("\t\t%s %s: %s\n", getTimeString(trade.timestamp), trade.slug, formatMoney(trade.profit))
 		}
 	}
 }
