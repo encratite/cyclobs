@@ -20,6 +20,7 @@ const (
 	backtestNegRisk = false
 	backtestPrintTags = false
 	backtestPrintHours = true
+	backtestPrintWeekdays = true
 	backtestPrintPrice = true
 	riskFreeRate = 0.045
 	monthsPerYear = 12
@@ -60,6 +61,7 @@ type backtestData struct {
 	prices map[backtestPriceKey]float64
 	tagPerformance map[string]performanceData[string]
 	hourPerformance map[int]performanceData[int]
+	weekdayPerformance map[int]performanceData[int]
 	pricePerformance map[int]performanceData[int]
 }
 
@@ -87,6 +89,7 @@ type backtestResult struct {
 	equityCurve []EquityCurveSample
 	tagPerformance []performanceData[string]
 	hourPerformance []performanceData[int]
+	weekdayPerformance []performanceData[int]
 	pricePerformance []performanceData[int]
 }
 
@@ -150,6 +153,7 @@ func runBacktest(
 		prices: prices,
 		tagPerformance: map[string]performanceData[string]{},
 		hourPerformance: map[int]performanceData[int]{},
+		weekdayPerformance: map[int]performanceData[int]{},
 		pricePerformance: map[int]performanceData[int]{},
 	}
 	sample := EquityCurveSample{
@@ -175,6 +179,9 @@ func runBacktest(
 	hourPerformance := sortMapByValue(backtest.hourPerformance, func (a, b performanceData[int]) int {
 		return cmp.Compare(a.key, b.key)
 	})
+	weekdayPerformance := sortMapByValue(backtest.weekdayPerformance, func (a, b performanceData[int]) int {
+		return cmp.Compare(a.key, b.key)
+	})
 	pricePerformance := sortMapByValue(backtest.pricePerformance, func (a, b performanceData[int]) int {
 		return cmp.Compare(a.key, b.key)
 	})
@@ -189,6 +196,7 @@ func runBacktest(
 		equityCurve: backtest.equityCurve,
 		tagPerformance: tagPerformance,
 		hourPerformance: hourPerformance,
+		weekdayPerformance: weekdayPerformance,
 		pricePerformance: pricePerformance,
 	}
 	return result
@@ -317,6 +325,8 @@ func (b *backtestData) updatePerformanceStats(slug string, profit float64, posit
 	}
 	hour := position.timestamp.Hour() / 4
 	addPerformance(hour, profit, position, b.hourPerformance)
+	weekday := int(position.timestamp.Weekday())
+	addPerformance(weekday, profit, position, b.weekdayPerformance)
 	priceBin := int(10 * position.price)
 	addPerformance(priceBin, profit, position, b.pricePerformance)
 }
@@ -428,6 +438,15 @@ func (r *backtestResult) print() {
 			profit, riskAdjusted := performance.getStats()
 			format := "\t\t%02d:00 - %02d:00: %.2f RAR, $%.2f/trade, %d trades\n"
 			fmt.Printf(format, hour1, hour2, riskAdjusted, profit, performance.trades)
+		}
+	}
+	if backtestPrintWeekdays {
+		fmt.Printf("\n\tProfit by weekday:\n")
+		for _, performance := range r.weekdayPerformance {
+			weekday := time.Weekday(performance.key)
+			profit, riskAdjusted := performance.getStats()
+			format := "\t\t%s: %.2f RAR, $%.2f/trade, %d trades\n"
+			fmt.Printf(format, weekday, riskAdjusted, profit, performance.trades)
 		}
 	}
 	if backtestPrintPrice {

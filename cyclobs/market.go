@@ -39,6 +39,7 @@ func subscribeToMarkets(assetIDs []string, callback func (BookMessage)) error {
 			err := connection.WriteMessage(websocket.TextMessage, pingData)
 			if err != nil {
 				log.Printf("Failed to send ping: %v", err)
+				connection.Close()
 				break
 			}
 			time.Sleep(10 * time.Second)

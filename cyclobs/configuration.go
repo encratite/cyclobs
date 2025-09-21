@@ -51,6 +51,7 @@ type JumpConfiguration struct {
 	Threshold1 *SerializableDecimal `yaml:"threshold1"`
 	Threshold2 *SerializableDecimal `yaml:"threshold2"`
 	Threshold3 *SerializableDecimal `yaml:"threshold3"`
+	SpreadLimit *SerializableDecimal `yaml:"spreadLimit"`
 	IncludeTags []string `yaml:"includeTags"`
 	ExcludeTags []string `yaml:"excludeTags"`
 }
@@ -125,6 +126,12 @@ func (c *JumpConfiguration) validate() {
 		if threshold.LessThanOrEqual(priceMin) || threshold.GreaterThanOrEqual(priceMax) {
 			log.Fatalf("Invalid threshold in jump configuration")
 		}
+	}
+	if c.SpreadLimit == nil {
+		log.Fatalf("Spread limit missing from jump configuration")
+	}
+	if c.SpreadLimit.IsNegative() {
+		log.Fatalf("Spread limit can't be negative")
 	}
 }
 

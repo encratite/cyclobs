@@ -30,6 +30,9 @@ func Screener() {
 	fmt.Printf("Found %d matching markets:\n", len(markets))
 	for i, data := range markets {
 		market := data.market
+		if market.Spread > config.SpreadLimit.InexactFloat64() {
+			continue
+		}
 		tags := []string{}
 		for _, tag := range data.tags {
 			tags = append(tags, tag.Slug)
