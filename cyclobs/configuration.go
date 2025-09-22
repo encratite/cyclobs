@@ -15,6 +15,7 @@ type Configuration struct {
 	Database DatabaseConfiguration `yaml:"database"`
 	Trigger TriggerModeConfiguration `yaml:"trigger"`
 	Jump JumpConfiguration `yaml:"jump"`
+	Earnings []EarningsConfiguration `yaml:"earnings"`
 }
 
 type Credentials struct {
@@ -54,6 +55,11 @@ type JumpConfiguration struct {
 	SpreadLimit *SerializableDecimal `yaml:"spreadLimit"`
 	IncludeTags []string `yaml:"includeTags"`
 	ExcludeTags []string `yaml:"excludeTags"`
+}
+
+type EarningsConfiguration struct {
+	Symbol string `yaml:"symbol"`
+	CIK string `yaml:"cik"`
 }
 
 type DatabaseConfiguration struct {
