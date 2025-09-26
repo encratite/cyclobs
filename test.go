@@ -1,11 +1,13 @@
-package cyclobs
+package main
 
 import (
 	"fmt"
 	"time"
+
+	"github.com/encratite/commons"
 )
 
-func Backtest() {
+func runBacktest() {
 	loadConfiguration()
 	// backtestDecaySingle()
 	// backtestDecayHeatmaps()
@@ -15,8 +17,8 @@ func Backtest() {
 }
 
 func backtestDecaySingle() {
-	start := getDateFromString("2024-02-01")
-	end := getDateFromString("2025-09-15")
+	start := mustParseTime("2024-02-01")
+	end := mustParseTime("2025-09-15")
 	tags := []string{
 		"business",
 		"world",
@@ -48,15 +50,15 @@ func backtestDecaySingle() {
 		priceRangeCheck: priceRangeCheck,
 	}
 	historyMap, dailyData, prices := loadBacktestData()
-	result := runBacktest(&strategy, start, end, historyMap, dailyData, prices)
+	result := executeBacktest(&strategy, start, end, historyMap, dailyData, prices)
 	result.print()
 	dailyEquityCurve := getDailyEquityCurve(result.equityCurve)
 	plotData("equity", dailyEquityCurve)
 }
 
 func backtestDecayHeatmaps() {
-	start := getDateFromString("2024-01-01")
-	end := getDateFromString("2025-09-15")
+	start := mustParseTime("2024-01-01")
+	end := mustParseTime("2025-09-15")
 	tags := []string{
 		"politics",
 		"geopolitics",
@@ -107,8 +109,8 @@ func backtestDecayHeatmaps() {
 	}
 	historyMap, dailyData, prices := loadBacktestData()
 	backtestStart := time.Now()
-	results := parallelMap(strategies, func (strategy decayStrategy) StrategyResult {
-		result := runBacktest(&strategy, start, end, historyMap, dailyData, prices)
+	results := commons.ParallelMap(strategies, func (strategy decayStrategy) StrategyResult {
+		result := executeBacktest(&strategy, start, end, historyMap, dailyData, prices)
 		strategyResult := StrategyResult{
 			Tag: strategy.tags[0],
 			Parameter: fmt.Sprintf("%.1f - %.1f", strategy.triggerPriceMin, strategy.triggerPriceMax),
@@ -123,8 +125,8 @@ func backtestDecayHeatmaps() {
 }
 
 func backtestThresholdSingle() {
-	start := getDateFromString("2024-01-01")
-	end := getDateFromString("2025-09-15")
+	start := mustParseTime("2024-01-01")
+	end := mustParseTime("2025-09-15")
 	tags := []string{
 		"politics",
 		// "geopolitics",
@@ -148,15 +150,15 @@ func backtestThresholdSingle() {
 		side: side,
 	}
 	historyMap, dailyData, prices := loadBacktestData()
-	result := runBacktest(&strategy, start, end, historyMap, dailyData, prices)
+	result := executeBacktest(&strategy, start, end, historyMap, dailyData, prices)
 	result.print()
 	dailyEquityCurve := getDailyEquityCurve(result.equityCurve)
 	plotData("equity", dailyEquityCurve)
 }
 
 func backtestJump() {
-	start := getDateFromString("2024-10-01")
-	end := getDateFromString("2025-09-15")
+	start := mustParseTime("2024-10-01")
+	end := mustParseTime("2025-09-15")
 	includeTags := []string{
 		"politics",
 		/*
@@ -193,15 +195,15 @@ func backtestJump() {
 		previousPrices: map[string]priceSample{},
 	}
 	historyMap, dailyData, prices := loadBacktestData()
-	result := runBacktest(&strategy, start, end, historyMap, dailyData, prices)
+	result := executeBacktest(&strategy, start, end, historyMap, dailyData, prices)
 	result.print()
 	dailyEquityCurve := getDailyEquityCurve(result.equityCurve)
 	plotData("equity", dailyEquityCurve)
 }
 
 func backtestMention() {
-	start := getDateFromString("2024-10-01")
-	end := getDateFromString("2025-06-15")
+	start := mustParseTime("2024-10-01")
+	end := mustParseTime("2025-06-15")
 	const (
 		threshold1 = 0.3
 		threshold2 = 0.7
@@ -216,7 +218,7 @@ func backtestMention() {
 		sampleCounts: map[string]int{},
 	}
 	historyMap, dailyData, prices := loadBacktestData()
-	result := runBacktest(&strategy, start, end, historyMap, dailyData, prices)
+	result := executeBacktest(&strategy, start, end, historyMap, dailyData, prices)
 	result.print()
 	dailyEquityCurve := getDailyEquityCurve(result.equityCurve)
 	plotData("equity", dailyEquityCurve)

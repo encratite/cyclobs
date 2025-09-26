@@ -1,4 +1,4 @@
-package cyclobs
+package main
 
 import (
 	"cmp"
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/encratite/commons"
 	"gonum.org/v1/gonum/stat"
 )
 
@@ -75,7 +76,7 @@ type tagDeltaData struct {
 	samples int
 }
 
-func Analyze() {
+func analyzeData() {
 	loadConfiguration()
 	database := newDatabaseClient()
 	defer database.close()
@@ -270,7 +271,7 @@ func analyzeHourSeasonality(negRisk bool, historyData []PriceHistoryBSON) {
 			if !includePrices(price1, price2) {
 				continue
 			}
-			returns := getReturns(price2, price1)
+			returns := getRateOfChange(price2, price1)
 			key := sample2.Timestamp.Hour()
 			entry, exists := hourMap[key]
 			if !exists {
@@ -305,7 +306,7 @@ func analyzeWeekdaySeasonality(negRisk bool, samplingHour int, historyData []Pri
 			}
 			previousSample := samples[i - 1]
 			timestamp := sample.Timestamp
-			date := getDate(timestamp)
+			date := commons.GetDate(timestamp)
 			if date.Year() < dataMinYear {
 				continue
 			}
@@ -315,7 +316,7 @@ func analyzeWeekdaySeasonality(negRisk bool, samplingHour int, historyData []Pri
 			if !includePrices(price1, price2) {
 				continue
 			}
-			returns := getReturns(price2, price1)
+			returns := getRateOfChange(price2, price1)
 			entry, exists := weekdayMap[key]
 			if !exists {
 				entry = weekdayReturns{
@@ -544,7 +545,7 @@ func getSamplingHours(samplingHour int, history PriceHistoryBSON) []PriceHistory
 	hasPreviousSample := false
 	for _, sample := range history.History {
 		timestamp := sample.Timestamp
-		date := getDate(timestamp)
+		date := commons.GetDate(timestamp)
 		if date.Year() < dataMinYear {
 			continue
 		}

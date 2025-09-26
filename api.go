@@ -1,9 +1,11 @@
-package cyclobs
+package main
 
 import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/encratite/commons"
 )
 
 func getEvents(tagSlug *string) ([]Event, error) {
@@ -58,14 +60,14 @@ func getMarket(slug string) (Market, error) {
 func getMarkets(offset, limit int, order, startDateMin string, tagID *int) ([]Market, error) {
 	url := "https://gamma-api.polymarket.com/markets"
 	parameters := map[string]string{
-		"offset": intToString(int64(offset)),
-		"limit": intToString(int64(limit)),
+		"offset": commons.IntToString(int64(offset)),
+		"limit": commons.IntToString(int64(limit)),
 		"order": order,
 		"ascending": "false",
 		"start_date_min": startDateMin,
 	}
 	if tagID != nil {
-		parameters["tag_id"] = intToString(int64(*tagID))
+		parameters["tag_id"] = commons.IntToString(int64(*tagID))
 	}
 	markets, err := getJSON[[]Market](url, parameters)
 	if err != nil {
@@ -91,8 +93,8 @@ func getPriceHistory(market string, start time.Time, fidelity int) (PriceHistory
 	url := "https://clob.polymarket.com/prices-history"
 	parameters := map[string]string{
 		"market": market,
-		"startTs": intToString(unixTimestamp),
-		"fidelity": intToString(int64(fidelity)),
+		"startTs": commons.IntToString(unixTimestamp),
+		"fidelity": commons.IntToString(int64(fidelity)),
 	}
 	history, err := getJSON[PriceHistory](url, parameters)
 	if err != nil {

@@ -1,10 +1,12 @@
-package cyclobs
+package main
 
 import (
 	"log"
 
 	"github.com/shopspring/decimal"
 	"gopkg.in/yaml.v3"
+
+	"github.com/encratite/commons"
 )
 
 const configurationPath = "configuration/configuration.yaml"
@@ -77,7 +79,7 @@ func loadConfiguration() {
 	if configuration != nil {
 		panic("Configuration had already been loaded")
 	}
-	yamlData := readFile(configurationPath)
+	yamlData := commons.ReadFile(configurationPath)
 	configuration = new(Configuration)
 	err := yaml.Unmarshal(yamlData, configuration)
 	if err != nil {

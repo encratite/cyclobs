@@ -1,10 +1,12 @@
-package cyclobs
+package main
 
 import (
 	"cmp"
 	"fmt"
 	"log"
 	"strconv"
+
+	"github.com/encratite/commons"
 )
 
 type tagCount struct {
@@ -12,7 +14,7 @@ type tagCount struct {
 	count int
 }
 
-func EventTags(slug string) {
+func showEventTags(slug string) {
 	event, err := getEventBySlug(slug)
 	if err != nil {
 		log.Fatalf("Failed to get event %s: %v", slug, err)
@@ -31,7 +33,7 @@ func EventTags(slug string) {
 	}
 }
 
-func RelatedTags(tag string) {
+func showRelatedTags(tag string) {
 	loadConfiguration()
 	database := newDatabaseClient()
 	defer database.close()
@@ -39,7 +41,7 @@ func RelatedTags(tag string) {
 	countMap := map[string]tagCount{}
 	total := 0
 	for _, history := range historyData {
-		if contains(history.Tags, tag) {
+		if commons.Contains(history.Tags, tag) {
 			for _, t := range history.Tags {
 				if t != tag {
 					count, exists := countMap[t]

@@ -1,4 +1,4 @@
-package cyclobs
+package main
 
 import (
 	"cmp"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/emirpasic/gods/maps/treemap"
+	"github.com/encratite/commons"
 	"github.com/gammazero/deque"
 	"github.com/polymarket/go-order-utils/pkg/model"
 	"github.com/shopspring/decimal"
@@ -66,14 +67,6 @@ type triggerData struct {
 	size decimal.Decimal
 	trigger Trigger
 	triggered bool
-}
-
-func DataMode() {
-	runMode(systemDataMode)
-}
-
-func TriggerMode() {
-	runMode(systemTriggerMode)
 }
 
 func runMode(mode tradingSystemMode) {
@@ -142,7 +135,7 @@ func (s *tradingSystem) runTriggerMode() {
 		if position.PercentPnL == -100.0 {
 			continue
 		}
-		exists := containsFunc(markets, func (m Market) bool {
+		exists := commons.ContainsFunc(markets, func (m Market) bool {
 			return m.Slug == position.Slug
 		})
 		if !exists {
@@ -157,7 +150,7 @@ func (s *tradingSystem) runTriggerMode() {
 	assetIDs := []string{}
 	for _, trigger := range configuration.Trigger.Triggers {
 		slug := *trigger.Slug
-		position, exists := find(positions, func (p Position) bool {
+		position, exists := commons.Find(positions, func (p Position) bool {
 			return p.Slug == slug
 		})
 		assetID := position.Asset
@@ -307,7 +300,7 @@ func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription *mark
 }
 
 func (s *tradingSystem) processTrigger(price decimal.Decimal, side string, subscription *marketSubscription) {
-	trigger, exists := findPointer(s.triggers, func (t triggerData) bool {
+	trigger, exists := commons.FindPointer(s.triggers, func (t triggerData) bool {
 		return t.slug == subscription.slug
 	})
 	if trigger.triggered {
@@ -344,7 +337,7 @@ func (s *tradingSystem) processTrigger(price decimal.Decimal, side string, subsc
 }
 
 func (s *tradingSystem) getMarket(conditionID string) (Market, bool) {
-	market, exists := find(s.markets, func (market Market) bool {
+	market, exists := commons.Find(s.markets, func (market Market) bool {
 		return market.ConditionID == conditionID
 	})
 	if exists {
@@ -473,7 +466,7 @@ func getEventMarkets() ([]Market, map[string]string, error) {
 				if volume.LessThan(configuration.Data.MinVolume.Decimal) {
 					continue
 				}
-				exists := containsFunc(markets, func (m Market) bool {
+				exists := commons.ContainsFunc(markets, func (m Market) bool {
 					return m.ConditionID == market.ConditionID
 				})
 				if exists {

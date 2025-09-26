@@ -1,4 +1,4 @@
-package cyclobs
+package main
 
 type EventsResponse struct {
 	Data []Event `json:"data"`

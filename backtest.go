@@ -1,4 +1,4 @@
-package cyclobs
+package main
 
 import (
 	"cmp"
@@ -7,6 +7,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/encratite/commons"
 	"github.com/gammazero/deque"
 	"gonum.org/v1/gonum/stat"
 )
@@ -124,7 +125,7 @@ func loadBacktestData() (map[string]*PriceHistoryBSON, map[time.Time]backtestDai
 		history := &historyData[i]
 		historyMap[history.Slug] = history
 		for _, price := range history.History {
-			date := getDate(price.Timestamp)
+			date := commons.GetDate(price.Timestamp)
 			data, exists := dailyData[date]
 			if !exists {
 				data = backtestDailyData{
@@ -133,7 +134,7 @@ func loadBacktestData() (map[string]*PriceHistoryBSON, map[time.Time]backtestDai
 			}
 			data.historyData[history.Slug] = history
 			dailyData[date] = data
-			hourTimestamp := getHourTimestamp(price.Timestamp)
+			hourTimestamp := commons.GetHourTimestamp(price.Timestamp)
 			priceKey := backtestPriceKey{
 				slug: history.Slug,
 				timestamp: hourTimestamp,
@@ -144,7 +145,7 @@ func loadBacktestData() (map[string]*PriceHistoryBSON, map[time.Time]backtestDai
 	return historyMap, dailyData, prices
 }
 
-func runBacktest(
+func executeBacktest(
 	strategy backtestStrategy,
 	start time.Time,
 	end time.Time,
@@ -169,7 +170,7 @@ func runBacktest(
 		recentTrades: deque.Deque[backtestTrade]{},
 	}
 	sample := EquityCurveSample{
-		Timestamp: getDate(start),
+		Timestamp: commons.GetDate(start),
 		Cash: backtestInitialCash,
 	}
 	backtest.equityCurve = []EquityCurveSample{
@@ -216,7 +217,7 @@ func runBacktest(
 }
 
 func (b *backtestData) getMarkets(tags []string) []*PriceHistoryBSON {
-	date := getDate(b.now)
+	date := commons.GetDate(b.now)
 	dailyData, exists := b.dailyData[date]
 	if !exists {
 		return nil
@@ -225,7 +226,7 @@ func (b *backtestData) getMarkets(tags []string) []*PriceHistoryBSON {
 	for _, history := range dailyData.historyData {
 		if len(tags) > 0 {
 			for _, tag := range tags {
-				if contains(history.Tags, tag) {
+				if commons.Contains(history.Tags, tag) {
 					historyData = append(historyData, history)
 					break
 				}
@@ -264,11 +265,11 @@ func (b *backtestData) getPrice(slug string) float64 {
 		const offset = 5
 		for i, sample := range history.History {
 			if i < offset || i >= len(history.History) - offset {
-				fmt.Printf("%d. %s %.3f\n", i + 1, getTimeString(sample.Timestamp), sample.Price)
+				fmt.Printf("%d. %s %.3f\n", i + 1, commons.GetTimeString(sample.Timestamp), sample.Price)
 			}
 		}
 	}
-	log.Fatalf("Failed to determine the price of %s at %s", slug, getTimeString(b.now))
+	log.Fatalf("Failed to determine the price of %s at %s", slug, commons.GetTimeString(b.now))
 	return 0.0
 }
 
@@ -293,7 +294,7 @@ func (b *backtestData) openPosition(slug string, side backtestPositionSide, size
 	b.cash -= cost
 	if backtestDebugPositions {
 		format := "%s Opened \"%s\" position on %s at %.3f (%s)\n"
-		fmt.Printf(format, getTimeString(b.now), getSideString(side), slug, ask, formatMoney(b.cash))
+		fmt.Printf(format, commons.GetTimeString(b.now), getSideString(side), slug, ask, commons.FormatMoney(b.cash))
 	}
 	return true
 }
@@ -315,7 +316,7 @@ func (b *backtestData) closePositions(slug string) bool {
 			profit := position.size * (bid - position.price)
 			if backtestDebugPositions {
 				format := "%s Closed \"%s\" position on %s at %.3f (%s)\n"
-				fmt.Printf(format, getTimeString(b.now), getSideString(position.side), slug, bid, formatMoney(b.cash))
+				fmt.Printf(format, commons.GetTimeString(b.now), getSideString(position.side), slug, bid, commons.FormatMoney(b.cash))
 			}
 			b.updatePerformanceStats(slug, profit, position)
 			if backtestPrintRecentTrades {
@@ -372,7 +373,7 @@ func (b *backtestData) resolveMarkets() {
 			log.Fatalf("Unable to find market for position %s", position.slug)
 		}
 		last := market.History[len(market.History) - 1]
-		timestamp := getHourTimestamp(last.Timestamp)
+		timestamp := commons.GetHourTimestamp(last.Timestamp)
 		if b.now.Equal(timestamp) || b.now.After(timestamp) {
 			if market.Closed && market.Outcome != nil {
 				newPositions := []backtestPosition{}
@@ -438,9 +439,9 @@ func (b *backtestData) addEquityCurveSample(date time.Time, cash float64) {
 }
 
 func (r *backtestResult) print() {
-	fmt.Printf("\tStart: %s\n", getDateString(r.start))
-	fmt.Printf("\tEnd: %s\n", getDateString(r.end))
-	fmt.Printf("\tCash: %s\n", formatMoney(r.cash))
+	fmt.Printf("\tStart: %s\n", commons.GetDateString(r.start))
+	fmt.Printf("\tEnd: %s\n", commons.GetDateString(r.end))
+	fmt.Printf("\tCash: %s\n", commons.FormatMoney(r.cash))
 	fmt.Printf("\tTotal return: %+.1f%%\n", percent * r.totalReturn)
 	fmt.Printf("\tMax drawdown: %.2f%%\n", percent * r.maxDrawdown)
 	fmt.Printf("\tSharpe ratio: %.2f\n", r.sharpeRatio)
@@ -451,7 +452,7 @@ func (r *backtestResult) print() {
 			if i >= 25 {
 				break
 			}
-			fmt.Printf("\t\t%d. %s: %s (%d trades)\n", i + 1, performance.key, formatMoney(performance.profit), performance.trades)
+			fmt.Printf("\t\t%d. %s: %s (%d trades)\n", i + 1, performance.key, commons.FormatMoney(performance.profit), performance.trades)
 		}
 	}
 	if backtestPrintHours {
@@ -485,7 +486,7 @@ func (r *backtestResult) print() {
 	if backtestPrintRecentTrades {
 		fmt.Printf("\n\tRecent trades:\n")
 		for trade := range r.recentTrades.Iter() {
-			fmt.Printf("\t\t%s %s: %s\n", getTimeString(trade.timestamp), trade.slug, formatMoney(trade.profit))
+			fmt.Printf("\t\t%s %s: %s\n", commons.GetTimeString(trade.timestamp), trade.slug, commons.FormatMoney(trade.profit))
 		}
 	}
 }
@@ -556,8 +557,8 @@ func getDailyEquityCurve(equityCurve []EquityCurveSample) []EquityCurveSample {
 	for _, sample := range equityCurve {
 		if len(output) > 0 {
 			previousSample := output[len(output) - 1]
-			date := getDate(sample.Timestamp)
-			previousDate := getDate(previousSample.Timestamp)
+			date := commons.GetDate(sample.Timestamp)
+			previousDate := commons.GetDate(previousSample.Timestamp)
 			if !date.Equal(previousDate) {
 				output = append(output, sample)
 			}

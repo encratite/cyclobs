@@ -1,7 +1,9 @@
-package cyclobs
+package main
 
 import (
 	"time"
+
+	"github.com/encratite/commons"
 )
 
 type decayStrategy struct {
@@ -60,7 +62,7 @@ func (s *decayStrategy) next(backtest *backtestData) {
 			continue
 		}
 		if price >= s.triggerPriceMin && price < s.triggerPriceMax {
-			exists := containsFunc(backtest.positions, func (p backtestPosition) bool {
+			exists := commons.ContainsFunc(backtest.positions, func (p backtestPosition) bool {
 				return p.slug == market.Slug
 			})
 			if exists {
@@ -88,7 +90,7 @@ func (s *decayStrategy) next(backtest *backtestData) {
 func (s *thresholdStrategy) next(backtest *backtestData) {
 	markets := backtest.getMarkets(s.tags)
 	for _, market := range markets {
-		exists := containsFunc(backtest.positions, func (p backtestPosition) bool {
+		exists := commons.ContainsFunc(backtest.positions, func (p backtestPosition) bool {
 			return p.slug == market.Slug
 		})
 		if exists {
@@ -109,7 +111,7 @@ func (s *jumpStrategy) next(backtest *backtestData) {
 	for _, market := range markets {
 		excluded := false
 		for _, tag := range market.Tags {
-			if contains(s.excludeTags, tag) {
+			if commons.Contains(s.excludeTags, tag) {
 				excluded = true
 				break
 			}
@@ -117,7 +119,7 @@ func (s *jumpStrategy) next(backtest *backtestData) {
 		if excluded {
 			continue
 		}
-		exists := containsFunc(backtest.positions, func (p backtestPosition) bool {
+		exists := commons.ContainsFunc(backtest.positions, func (p backtestPosition) bool {
 			return p.slug == market.Slug
 		})
 		if exists {
@@ -159,7 +161,7 @@ func (s *mentionStrategy) next(backtest *backtestData) {
 	markets := backtest.getMarkets(tags)
 	for _, market := range markets {
 		slug := market.Slug
-		exists := containsFunc(backtest.positions, func (p backtestPosition) bool {
+		exists := commons.ContainsFunc(backtest.positions, func (p backtestPosition) bool {
 			return p.slug == slug
 		})
 		if exists {

@@ -1,4 +1,4 @@
-package cyclobs
+package main
 
 import (
 	"encoding/json"

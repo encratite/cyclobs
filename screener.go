@@ -1,4 +1,4 @@
-package cyclobs
+package main
 
 import (
 	"cmp"
@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/encratite/commons"
 	"github.com/fatih/color"
 )
 
@@ -17,7 +18,7 @@ type screenerData struct {
 	tags []EventTag
 }
 
-func Screener() {
+func runScreener() {
 	loadConfiguration()
 	config := configuration.Jump
 	markets := getScreenerMarkets(false, config.IncludeTags, config.ExcludeTags, config.Threshold2.InexactFloat64(), config.Threshold3.InexactFloat64())
@@ -99,7 +100,7 @@ func processScreenerEvents(
 		}
 		excluded := false
 		for _, tag := range event.Tags {
-			if contains(excludeTags, tag.Slug) {
+			if commons.Contains(excludeTags, tag.Slug) {
 				excluded = true
 				break
 			}

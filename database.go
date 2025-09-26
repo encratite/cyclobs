@@ -1,4 +1,4 @@
-package cyclobs
+package main
 
 import (
 	"context"
@@ -550,7 +550,6 @@ func convertBestBidAsk(bestBid, bestAsk string) (bson.Decimal128, bson.Decimal12
 	}
 	return priceDecimal, sizeDecimal, nil
 }
-
 
 func convertDecimal(value string, name string) (bson.Decimal128, error) {
 	priceDecimal, err := bson.ParseDecimal128(value)

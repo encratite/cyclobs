@@ -1,4 +1,4 @@
-package cyclobs
+package main
 
 import (
 	"fmt"
@@ -6,20 +6,22 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/encratite/commons"
 )
 
 const (
 	historyFidelitySingle = 1
 )
 
-func Download(slug string, directory string) {
+func downloadEvent(slug string, directory string) {
 	event, err := getEventBySlug(slug)
 	if err != nil {
 		return
 	}
 	os.MkdirAll(directory, 0755)
 	for _, market := range event.Markets {
-		startDate, err := parseISOTime(market.StartDate)
+		startDate, err := commons.ParseTime(market.StartDate)
 		if err != nil {
 			log.Fatalf("Unable to parse start date: \"%s\"", market.StartDate)
 			return
@@ -35,10 +37,10 @@ func Download(slug string, directory string) {
 		output := "time,price\n"
 		for _, sample := range history.History {
 			timestamp := time.Unix(int64(sample.Time), 0).UTC()
-			output += fmt.Sprintf("%s,%g\n", getTimeString(timestamp), sample.Price)
+			output += fmt.Sprintf("%s,%g\n", commons.GetTimeString(timestamp), sample.Price)
 		}
 		path := filepath.Join(directory, fmt.Sprintf("%s.csv", market.Slug))
-		writeFile(path, output)
+		commons.WriteFile(path, output)
 		log.Printf("Downloaded %d samples to %s", len(history.History), path)
 	}
 }

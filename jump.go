@@ -1,10 +1,11 @@
-package cyclobs
+package main
 
 import (
 	"fmt"
 	"log"
 	"time"
 
+	"github.com/encratite/commons"
 	"github.com/fatih/color"
 	"github.com/gammazero/deque"
 	"github.com/shopspring/decimal"
@@ -32,7 +33,7 @@ type jumpPriceEvent struct {
 	price decimal.Decimal
 }
 
-func Jump() {
+func runJumpSystem() {
 	loadConfiguration()
 	config := configuration.Jump
 	system := jumpTradingSystem{
@@ -107,7 +108,7 @@ func (s *jumpTradingSystem) addMarkets(tagSlug *string, markets *[]Market) error
 		}
 		include := true
 		for _, tag := range event.Tags {
-			if contains(s.excludeTags, tag.Slug) {
+			if commons.Contains(s.excludeTags, tag.Slug) {
 				include = false
 				break
 			}

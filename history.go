@@ -1,9 +1,11 @@
-package cyclobs
+package main
 
 import (
 	"log"
 	"strconv"
 	"time"
+
+	"github.com/encratite/commons"
 )
 
 const (
@@ -14,7 +16,7 @@ const (
 	historyFidelity = 60
 )
 
-func History() {
+func updateHistory() {
 	loadConfiguration()
 	database := newDatabaseClient()
 	defer database.close()
@@ -55,12 +57,12 @@ func History() {
 			for _, eventTag := range eventTags {
 				tagSlugs = append(tagSlugs, eventTag.Slug)
 			}
-			startDate, err := parseISOTime(market.StartDate)
+			startDate, err := commons.ParseTime(market.StartDate)
 			if err != nil {
 				continue
 			}
 			var endDatePointer *time.Time = nil
-			endDate, endDateErr := parseISOTime(market.EndDate)
+			endDate, endDateErr := commons.ParseTime(market.EndDate)
 			if endDateErr != nil {
 				endDatePointer = &endDate
 			}

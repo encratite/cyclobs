@@ -1,4 +1,4 @@
-package cyclobs
+package main
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/encratite/commons"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/polymarket/go-order-utils/pkg/builder"
@@ -105,7 +106,7 @@ func postOrder(slug, tokenID string, side model.Side, size decimal.Decimal, limi
 	if expiration > 0 {
 		expirationDuration := time.Duration(expiration) * time.Second
 		expirationTime := time.Now().Add(expirationDuration).UTC()
-		expirationString = intToString(expirationTime.Unix())
+		expirationString = commons.IntToString(expirationTime.Unix())
 	} else {
 		expirationString = "0"
 	}
@@ -114,8 +115,8 @@ func postOrder(slug, tokenID string, side model.Side, size decimal.Decimal, limi
 		Signer: configuration.Credentials.PolygonAddress,
 		Taker: "0x0000000000000000000000000000000000000000",
 		TokenId: tokenID,
-		MakerAmount: intToString(makerAmount),
-		TakerAmount: intToString(takerAmount),
+		MakerAmount: commons.IntToString(makerAmount),
+		TakerAmount: commons.IntToString(takerAmount),
 		Side: side,
 		Expiration: expirationString,
 		Nonce: "0",
@@ -182,7 +183,7 @@ func postOrder(slug, tokenID string, side model.Side, size decimal.Decimal, limi
 		log.Fatalf("Failed to serialize order: %v", err)
 	}
 	body := string(bodyBytes)
-	timestampString := intToString(timestamp)
+	timestampString := commons.IntToString(timestamp)
 	message := timestampString + method + requestPath + body
 	secretBytes, err := base64.StdEncoding.DecodeString(configuration.Credentials.Secret)
 	if err != nil {

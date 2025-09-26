@@ -1,4 +1,4 @@
-package cyclobs
+package main
 
 import (
 	"fmt"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/antchfx/htmlquery"
+	"github.com/encratite/commons"
 )
 
 type companyEDGARData struct {
@@ -24,7 +25,7 @@ type companyInvestingData struct {
 	triggered bool
 }
 
-func Earnings() {
+func runEarningsSystem() {
 	loadConfiguration()
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -35,10 +36,11 @@ func Earnings() {
 
 func watchEDGAR(wg *sync.WaitGroup) {
 	companies := map[string]companyEDGARData{}
-	for {
+	keepWatching := true
+	for keepWatching {
 		for _, company := range configuration.Earnings {
 			getEDGARData(company, &companies)
-			keepWatching := false
+			keepWatching = false
 			for _, data := range companies {
 				if !data.triggered {
 					keepWatching = true
@@ -109,7 +111,7 @@ func watchInvesting(wg *sync.WaitGroup) {
 	}
 	for {
 		getInvestingData(&data)
-		keepWatching := containsFunc(data, func (investingData companyInvestingData) bool {
+		keepWatching := commons.ContainsFunc(data, func (investingData companyInvestingData) bool {
 			return !investingData.triggered
 		})
 		if !keepWatching {

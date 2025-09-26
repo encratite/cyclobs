@@ -1,4 +1,4 @@
-package cyclobs
+package main
 
 import (
 	"fmt"
@@ -13,11 +13,11 @@ type outcomeStats struct {
 	yesOutcomes int
 }
 
-func Outcomes() {
-	analyzeOutcomes("politics")
+func analyzeOutcomes() {
+	analyzeOutcomesByTag("politics")
 }
 
-func analyzeOutcomes(tag string) {
+func analyzeOutcomesByTag(tag string) {
 	loadConfiguration()
 	database := newDatabaseClient()
 	defer database.close()

@@ -2,8 +2,6 @@ package main
 
 import (
 	"flag"
-
-	"cyclobs/cyclobs"
 )
 
 func main() {
@@ -22,29 +20,29 @@ func main() {
 	outcomes := flag.Bool("outcomes", false, "Analyze the correlation between prices and outcomes")
 	flag.Parse()
 	if *dataMode {
-		cyclobs.DataMode()
+		runMode(systemDataMode)
 	} else if *triggerMode {
-		cyclobs.TriggerMode()
+		runMode(systemTriggerMode)
 	} else if *jump {
-		cyclobs.Jump()
+		runJumpSystem()
 	} else if *earnings {
-		cyclobs.Earnings()
+		runEarningsSystem()
 	} else if *history {
-		cyclobs.History()
+		updateHistory()
 	} else if *analyze {
-		cyclobs.Analyze()
+		analyzeData()
 	} else if *download != "" && *output != "" {
-		cyclobs.Download(*download, *output)
+		downloadEvent(*download, *output)
 	} else if *screener {
-		cyclobs.Screener()
+		runScreener()
 	} else if *backtest {
-		cyclobs.Backtest()
+		runBacktest()
 	} else if *tags != "" {
-		cyclobs.EventTags(*tags)
+		showEventTags(*tags)
 	} else if *relatedTags != "" {
-		cyclobs.RelatedTags(*relatedTags)
+		showRelatedTags(*relatedTags)
 	} else if *outcomes {
-		cyclobs.Outcomes()
+		analyzeOutcomes()
 	} else {
 		flag.Usage()
 	}
