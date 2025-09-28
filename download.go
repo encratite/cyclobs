@@ -23,8 +23,12 @@ func downloadEvent(slug string, directory string) {
 	for _, market := range event.Markets {
 		startDate, err := commons.ParseTime(market.StartDate)
 		if err != nil {
-			log.Fatalf("Unable to parse start date: \"%s\"", market.StartDate)
-			return
+			createdDate, err := commons.ParseTime(market.CreatedAt)
+			if err != nil {
+				log.Fatalf("Unable to parse start date: \"%s\"/\"%s\"", market.StartDate, market.CreatedAt)
+				return
+			}
+			startDate = createdDate
 		}
 		yesID, err := getCLOBTokenID(market, true)
 		if err != nil {

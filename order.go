@@ -106,7 +106,7 @@ func postOrder(slug, tokenID string, side model.Side, size decimal.Decimal, limi
 	if expiration > 0 {
 		expirationDuration := time.Duration(expiration) * time.Second
 		expirationTime := time.Now().Add(expirationDuration).UTC()
-		expirationString = commons.IntToString(expirationTime.Unix())
+		expirationString = commons.Int64ToString(expirationTime.Unix())
 	} else {
 		expirationString = "0"
 	}
@@ -115,8 +115,8 @@ func postOrder(slug, tokenID string, side model.Side, size decimal.Decimal, limi
 		Signer: configuration.Credentials.PolygonAddress,
 		Taker: "0x0000000000000000000000000000000000000000",
 		TokenId: tokenID,
-		MakerAmount: commons.IntToString(makerAmount),
-		TakerAmount: commons.IntToString(takerAmount),
+		MakerAmount: commons.Int64ToString(makerAmount),
+		TakerAmount: commons.Int64ToString(takerAmount),
 		Side: side,
 		Expiration: expirationString,
 		Nonce: "0",
@@ -183,7 +183,7 @@ func postOrder(slug, tokenID string, side model.Side, size decimal.Decimal, limi
 		log.Fatalf("Failed to serialize order: %v", err)
 	}
 	body := string(bodyBytes)
-	timestampString := commons.IntToString(timestamp)
+	timestampString := commons.Int64ToString(timestamp)
 	message := timestampString + method + requestPath + body
 	secretBytes, err := base64.StdEncoding.DecodeString(configuration.Credentials.Secret)
 	if err != nil {
