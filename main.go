@@ -18,6 +18,7 @@ func main() {
 	tags := flag.String("tags", "", "Get the tags of an event")
 	relatedTags := flag.String("related", "", "Find related tags")
 	outcomes := flag.Bool("outcomes", false, "Analyze the correlation between prices and outcomes")
+	fights := flag.String("fights", "", "Analyze outcomes of boxing matches or UFC fights")
 	flag.Parse()
 	if *dataMode {
 		runMode(systemDataMode)
@@ -43,6 +44,8 @@ func main() {
 		showRelatedTags(*relatedTags)
 	} else if *outcomes {
 		analyzeOutcomes()
+	} else if *fights != "" {
+		analyzeFights(*fights)
 	} else {
 		flag.Usage()
 	}
