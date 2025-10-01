@@ -82,5 +82,5 @@ func (s *outcomeStats) print() {
 	samples := len(s.prices)
 	meanPrice := stat.Mean(s.prices, nil)
 	delta := meanPrice - yesRatio
-	fmt.Printf("\t%.2f - %.2f: delta = %.2f, yes = %.1f%%, samples = %d, meanPrice %.2f)\n", s.range1, s.range2, delta, percent * yesRatio, samples, meanPrice)
+	fmt.Printf("\t%.2f - %.2f: delta = %.2f, yes = %.1f%%, samples = %d, meanPrice = %.2f\n", s.range1, s.range2, delta, percent * yesRatio, samples, meanPrice)
 }
