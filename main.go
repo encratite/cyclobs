@@ -20,6 +20,7 @@ func main() {
 	relatedTags := flag.String("related", "", "Find related tags")
 	outcomes := flag.Bool("outcomes", false, "Analyze the correlation between prices and outcomes")
 	fights := flag.String("fights", "", "Analyze outcomes of boxing matches or UFC fights")
+	live := flag.String("live", "", "Evaluate live betting trigger levels using on-chain data in the specified directory")
 	flag.Parse()
 	if *dataMode {
 		runMode(systemDataMode)
@@ -49,6 +50,8 @@ func main() {
 		analyzeOutcomes()
 	} else if *fights != "" {
 		analyzeFights(*fights)
+	} else if *live != "" {
+		evaluateLiveBetting(*live)
 	} else {
 		flag.Usage()
 	}
