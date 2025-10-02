@@ -29,6 +29,7 @@ func getJSON[T any](base string, parameters map[string]string) (T, error) {
 	}
 	u.RawQuery = values.Encode()
 	encoded := u.String()
+	// log.Printf("URL: %s", encoded)
 	response, err := http.Get(encoded)
 	var empty T
 	if err != nil {

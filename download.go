@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -19,7 +18,7 @@ func downloadEvent(slug string, directory string) {
 	if err != nil {
 		return
 	}
-	os.MkdirAll(directory, 0755)
+	commons.CreateDirectory(directory)
 	for _, market := range event.Markets {
 		startDate, err := commons.ParseTime(market.StartDate)
 		if err != nil {

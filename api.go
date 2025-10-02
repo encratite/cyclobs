@@ -102,3 +102,16 @@ func getPriceHistory(market string, start time.Time, fidelity int) (PriceHistory
 	}
 	return history, nil
 }
+
+func getTrades(conditionID string, offset int) ([]Trade, error) {
+	url := "https://data-api.polymarket.com/trades"
+	parameters := map[string]string{
+		"market": conditionID,
+		"limit": commons.IntToString(tradesAPILimit),
+		"offset": commons.IntToString(offset),
+		"filterType": "CASH",
+		"filterAmount": "1",
+	}
+	trades, err := getJSON[[]Trade](url, parameters)
+	return trades, err
+}

@@ -12,6 +12,7 @@ func main() {
 	history := flag.Bool("history", false, "Download recent historical data")
 	analyze := flag.Bool("analyze", false, "Analyze historical data previously downloaded using -history")
 	download := flag.String("download", "", "Download the complete price history of the specified event slug, also requires -output")
+	trades := flag.String("trades", "", "Download historical trades from the event to the target directory specified by -output")
 	output := flag.String("output", "", "The directory to download the complete price history to, only works in combination with -download")
 	screener := flag.Bool("screener", false, "Filter for events that meet certain criteria")
 	backtest := flag.Bool("backtest", false, "Run backtest")
@@ -34,6 +35,8 @@ func main() {
 		analyzeData()
 	} else if *download != "" && *output != "" {
 		downloadEvent(*download, *output)
+	} else if *trades != "" && *output != "" {
+		downloadTrades(*trades, *output)
 	} else if *screener {
 		runScreener()
 	} else if *backtest {

@@ -255,3 +255,25 @@ type EventTag struct {
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
 }
+
+type Trade struct {
+	ProxyWallet string `json:"proxyWallet"`
+	Side string `json:"side"`
+	Asset string `json:"asset"`
+	ConditionID string `json:"conditionId"`
+	Size float64 `json:"size"`
+	Price float64 `json:"price"`
+	Timestamp int64 `json:"timestamp"`
+	Title string `json:"title"`
+	Slug string `json:"slug"`
+	Icon string `json:"icon"`
+	EventSlug string `json:"eventSlug"`
+	Outcome string `json:"outcome"`
+	OutcomeIndex int `json:"outcomeIndex"`
+	Name string `json:"name"`
+	Pseudonym string `json:"pseudonym"`
+	Bio string `json:"bio"`
+	ProfileImage string `json:"profileImage"`
+	ProfileImageOptimized string `json:"profileImageOptimized"`
+	TransactionHash string `json:"transactionHash"`
+}
