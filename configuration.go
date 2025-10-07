@@ -9,7 +9,10 @@ import (
 	"github.com/encratite/commons"
 )
 
-const configurationPath = "configuration/configuration.yaml"
+const (
+	configurationPath = "configuration/configuration.yaml"
+	profitConfigurationPath = "configuration/profit.yaml"
+)
 
 type Configuration struct {
 	Credentials Credentials `yaml:"credentials"`
@@ -69,23 +72,31 @@ type DatabaseConfiguration struct {
 	Database *string `yaml:"database"`
 }
 
+type ProfitConfiguration struct {
+	Categories []CategoryFilter `yaml:"categories"`
+	Ignore []IgnoreFilter `yaml:"ignore"`
+}
+
+type CategoryFilter struct {
+	Name string `yaml:"name"`
+	Filters []string `yaml:"filters"`
+}
+
+type IgnoreFilter struct {
+	Filters []string `yaml:"filters"`
+}
+
 type SerializableDecimal struct {
 	decimal.Decimal
 }
 
 var configuration *Configuration
+var profitConfiguration *ProfitConfiguration
 
 func loadConfiguration() {
-	if configuration != nil {
-		panic("Configuration had already been loaded")
-	}
-	yamlData := commons.ReadFile(configurationPath)
-	configuration = new(Configuration)
-	err := yaml.Unmarshal(yamlData, configuration)
-	if err != nil {
-		log.Fatal("Failed to unmarshal YAML:", err)
-	}
+	configuration = commons.LoadConfiguration(configurationPath, configuration)
 	configuration.validate()
+	profitConfiguration = commons.LoadConfiguration(profitConfigurationPath, profitConfiguration)
 }
 
 func (c *Configuration) validate() {

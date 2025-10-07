@@ -12,8 +12,6 @@ import (
 )
 
 const (
-	tradesAPILimit = 500
-	tradesAPIOffsetLimit = 1000
 	tradesDownloadThrottle = 100
 	fileExistsCheck = false
 )

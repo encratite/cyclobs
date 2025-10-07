@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	liveTriggerLevel = 0.75
+	liveTriggerLevel = 0.6
 	liveWinThreshold = 0.99
 	liveRaceDuration = 10
-	liveMinRecords = 10
+	liveMinRecords = 20
 )
 
 type liveRecord struct {
@@ -29,6 +29,7 @@ func evaluateLiveBetting(directory string) {
 	prices := []float64{}
 	for _, path := range directories {
 		win, price := evaluateLiveData(path)
+		fmt.Printf("%s: %t\n", path, win)
 		if win {
 			wins++
 		}
@@ -60,6 +61,7 @@ func evaluateLiveData(directory string) (bool, *float64) {
 			earliestTrigger = triggerTime
 			earliestTriggerNextPrice = nextPrice
 			earliestWin = &win
+			fmt.Printf("Earliest trigger: %s, %t\n", path, win)
 		}
 	}
 	if earliestTrigger == nil {

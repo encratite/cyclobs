@@ -8,6 +8,12 @@ import (
 	"github.com/encratite/commons"
 )
 
+const (
+	tradesAPILimit = 500
+	tradesAPIOffsetLimit = 1000
+	activityAPILimit = 1000
+)
+
 func getEvents(tagSlug *string) ([]Event, error) {
 	url := "https://gamma-api.polymarket.com/events/pagination"
 	parameters := map[string]string{
@@ -114,4 +120,17 @@ func getTrades(conditionID string, offset int) ([]Trade, error) {
 	}
 	trades, err := getJSON[[]Trade](url, parameters)
 	return trades, err
+}
+
+func getActivities(proxyWallet string, offset int) ([]Activity, error) {
+	url := "https://data-api.polymarket.com/activity"
+	parameters := map[string]string{
+		"user": proxyWallet,
+		"limit": commons.IntToString(activityAPILimit),
+		"offset": commons.IntToString(offset),
+		"sortBy": "TIMESTAMP",
+		"sortDirection": "ASC",
+	}
+	activities, err := getJSON[[]Activity](url, parameters)
+	return activities, err
 }

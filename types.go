@@ -277,3 +277,27 @@ type Trade struct {
 	ProfileImageOptimized string `json:"profileImageOptimized"`
 	TransactionHash string `json:"transactionHash"`
 }
+
+type Activity struct {
+	ProxyWallet string `json:"proxyWallet"`
+	Timestamp int64 `json:"timestamp"`
+	ConditionID string `json:"conditionId"`
+	Type string `json:"type"`
+	Size float64 `json:"size"`
+	USDCSize float64 `json:"usdcSize"`
+	TransactionHash string `json:"transactionHash"`
+	Price float64 `json:"float64"`
+	Asset string `json:"asset"`
+	Side string `json:"side"`
+	OutcomeIndex int `json:"outcomeIndex"`
+	Title string `json:"title"`
+	Slug string `json:"slug"`
+	Icon string `json:"icon"`
+	EventSlug string `json:"eventSlug"`
+	Outcome string `json:"outcome"`
+	Name string `json:"name"`
+	Pseudonym string `json:"pseudonym"`
+	Bio string `json:"bio"`
+	ProfileImage string `json:"profileImage"`
+	ProfileImageOptimized string `json:"profileImageOptimized"`
+}
