@@ -23,7 +23,7 @@ const (
 type activityProfit struct {
 	slug string
 	category *activityCategory
-	buyPrice float64
+	positions []activityPosition
 	sellPrice float64
 	sold bool
 }
@@ -33,6 +33,12 @@ type activityCategory struct {
 	patterns []*regexp.Regexp
 	profits []activityProfit
 	lastRow bool
+}
+
+type activityPosition struct {
+	outcomeIndex int
+	price float64
+	size float64
 }
 
 func analyzeProfits() {
@@ -81,6 +87,12 @@ func analyzeProfits() {
 		isSell := activity.Type == activityTypeTrade && activity.Side == activitySideSell
 		isRedeem := activity.Type == activityTypeRedeem
 		if isBuy {
+			price := activity.USDCSize / activity.Size
+			position := activityPosition{
+				outcomeIndex: activity.OutcomeIndex,
+				price: price,
+				size: activity.Size,
+			}
 			if !profitExists {
 				var category *activityCategory
 				for i := range categories {
@@ -99,18 +111,49 @@ func analyzeProfits() {
 				profit := activityProfit{
 					slug: slug,
 					category: category,
-					buyPrice: activity.USDCSize,
+					positions: []activityPosition{},
 					sellPrice: 0.0,
 					sold: false,
 				}
+				profit.positions = append(profit.positions, position)
 				profits = append(profits, profit)
 			} else {
 				profit := &profits[i]
-				profit.buyPrice += activity.USDCSize
+				profit.positions = append(profit.positions, position)
 			}
-		} else if (isSell || isRedeem) && profitExists {
+		} else if isSell && profitExists {
 			profit := &profits[i]
 			profit.sellPrice += activity.USDCSize
+			profit.sold = true
+		} else if isRedeem && profitExists {
+			profit := &profits[i]
+			if profit.sold && profit.sellPrice > 0.0 {
+				// fmt.Printf("Warning: redeem after redeem/sell for %s\n", activity.Slug)
+				continue
+			}
+			market, err := getMarket(activity.Slug)
+			if err != nil {
+				return
+			}
+			outcome := getMarketOutcome(market)
+			if outcome == nil {
+				fmt.Printf("Warning: no outcome for market %s\n", market.Slug)
+				continue
+			}
+			var outcomeIndex int
+			if *outcome {
+				outcomeIndex = 0
+			} else {
+				outcomeIndex = 1
+			}
+			sellPrice := 0.0
+			for _, position := range profit.positions {
+				if position.outcomeIndex == outcomeIndex {
+					sellPrice += position.size
+				}
+			}
+			fmt.Printf("Resolved market %s to outcome %d for %s\n", activity.Slug, outcomeIndex, commons.FormatMoney(sellPrice))
+			profit.sellPrice += sellPrice
 			profit.sold = true
 		}
 	}
@@ -143,9 +186,13 @@ func analyzeProfits() {
 			if !profit.sold {
 				continue
 			}
-			delta := profit.sellPrice - profit.buyPrice
+			buyPrice := 0.0
+			for _, position := range profit.positions {
+				buyPrice += position.size * position.price
+			}
+			delta := profit.sellPrice - buyPrice
 			total += delta
-			r := profit.sellPrice / profit.buyPrice - 1.0
+			r := profit.sellPrice / buyPrice - 1.0
 			if r > 0.0 {
 				wins++
 			}
