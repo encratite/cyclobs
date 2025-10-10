@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"regexp"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/tw"
 	"gonum.org/v1/gonum/stat"
+	"gonum.org/v1/gonum/stat/distuv"
 )
 
 const (
@@ -33,6 +35,9 @@ type activityCategory struct {
 	patterns []*regexp.Regexp
 	profits []activityProfit
 	lastRow bool
+	total float64
+	returns []float64
+	wins int
 }
 
 type activityPosition struct {
@@ -103,6 +108,9 @@ func analyzeProfits() {
 							break
 						}
 					}
+					if category != nil {
+						break
+					}
 				}
 				if category == nil {
 					fmt.Printf("Warning: unable to find a matching category for \"%s\"\n", slug)
@@ -152,7 +160,7 @@ func analyzeProfits() {
 					sellPrice += position.size
 				}
 			}
-			fmt.Printf("Resolved market %s to outcome %d for %s\n", activity.Slug, outcomeIndex, commons.FormatMoney(sellPrice))
+			// fmt.Printf("Resolved market %s to outcome %d for %s\n", activity.Slug, outcomeIndex, commons.FormatMoney(sellPrice))
 			profit.sellPrice += sellPrice
 			profit.sold = true
 		}
@@ -179,32 +187,14 @@ func analyzeProfits() {
 	}
 	rows := [][]string{}
 	for _, category := range categories {
-		total := 0.0
-		returns := []float64{}
-		wins := 0
-		for _, profit := range category.profits {
-			if !profit.sold {
-				continue
-			}
-			buyPrice := 0.0
-			for _, position := range profit.positions {
-				buyPrice += position.size * position.price
-			}
-			delta := profit.sellPrice - buyPrice
-			total += delta
-			r := profit.sellPrice / buyPrice - 1.0
-			if r > 0.0 {
-				wins++
-			}
-			returns = append(returns, r)
-		}
+		category.processProfits()
 		riskAdjustedString := "-"
-		if len(returns) >= 2 {
-			riskAdjusted := stat.Mean(returns, nil) / stat.StdDev(returns, nil)
+		if len(category.returns) >= 2 {
+			riskAdjusted := stat.Mean(category.returns, nil) / stat.StdDev(category.returns, nil)
 			riskAdjustedString = fmt.Sprintf("%.2f", riskAdjusted)
 		}
-		percentage := percent * stat.Mean(returns, nil)
-		hitRate := percent * float64(wins) / float64(len(returns))
+		percentage := percent * stat.Mean(category.returns, nil)
+		hitRate := percent * float64(category.wins) / float64(len(category.returns))
 		if category.lastRow {
 			emptyRow := []string{
 				"",
@@ -218,11 +208,11 @@ func analyzeProfits() {
 		}
 		row := []string{
 			category.name,
-			commons.FormatMoney(total),
+			commons.FormatMoney(category.total),
 			fmt.Sprintf("%+.2f%%", percentage),
 			riskAdjustedString,
 			fmt.Sprintf("%.1f%%", hitRate),
-			commons.IntToString(len(returns)),
+			commons.IntToString(len(category.returns)),
 		}
 		rows = append(rows, row)
 	}
@@ -245,6 +235,9 @@ func analyzeProfits() {
 	table.Header(header)
 	table.Bulk(rows)
 	table.Render()
+	allCategory.processProfits()
+	p := allCategory.getPValue()
+	fmt.Printf("\np-value: %.2f", p)
 }
 
 func getAllActivities() []Activity {
@@ -260,4 +253,45 @@ func getAllActivities() []Activity {
 		}
 	}
 	return output
+}
+
+func (c *activityCategory) processProfits() {
+	c.total = 0.0
+	c.returns = []float64{}
+	c.wins = 0
+	for _, profit := range c.profits {
+		if !profit.sold {
+			continue
+		}
+		buyPrice := 0.0
+		for _, position := range profit.positions {
+			buyPrice += position.size * position.price
+		}
+		delta := profit.sellPrice - buyPrice
+		c.total += delta
+		r := profit.sellPrice / buyPrice - 1.0
+		if r > 0.0 {
+			c.wins++
+		}
+		c.returns = append(c.returns, r)
+	}
+}
+
+func (c *activityCategory) getPValue() float64 {
+	returns := c.returns
+	mean := stat.Mean(returns, nil)
+	stdDev := stat.StdDev(returns, nil)
+	n := float64(len(returns))
+	degrees := n - 1.0
+	distribution := distuv.StudentsT{
+		Mu: 0,
+		Sigma: 1,
+		Nu: degrees,
+	}
+	const randomMean = 0.0
+	Z := mean - randomMean
+	s := stdDev / math.Sqrt(n)
+	t := Z / s
+	p := 1 - distribution.CDF(t)
+	return p
 }
