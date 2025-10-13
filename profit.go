@@ -20,6 +20,7 @@ const (
 	activityTypeTrade = "TRADE"
 	activitySideBuy = "BUY"
 	activitySideSell = "SELL"
+	printResolveMessages = false
 )
 
 type activityProfit struct {
@@ -160,7 +161,9 @@ func analyzeProfits() {
 					sellPrice += position.size
 				}
 			}
-			// fmt.Printf("Resolved market %s to outcome %d for %s\n", activity.Slug, outcomeIndex, commons.FormatMoney(sellPrice))
+			if printResolveMessages {
+				fmt.Printf("Resolved market %s to outcome %d for %s\n", activity.Slug, outcomeIndex, commons.FormatMoney(sellPrice))
+			}
 			profit.sellPrice += sellPrice
 			profit.sold = true
 		}

@@ -11,7 +11,7 @@ import (
 const (
 	tradesAPILimit = 500
 	tradesAPIOffsetLimit = 1000
-	activityAPILimit = 1000
+	activityAPILimit = 500
 )
 
 func getEvents(tagSlug *string) ([]Event, error) {
