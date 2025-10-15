@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"time"
 
 	"github.com/encratite/commons"
 	"github.com/olekukonko/tablewriter"
@@ -47,8 +48,14 @@ type activityPosition struct {
 	size float64
 }
 
-func analyzeProfits() {
+func analyzeProfits(dateString string) {
 	loadConfiguration()
+	var date time.Time
+	hasDate := false
+	date, err := commons.ParseTime(dateString)
+	if err == nil {
+		hasDate = true
+	}
 	activities := getAllActivities()
 	ignorePatterns := []*regexp.Regexp{}
 	for _, group := range profitConfiguration.Ignore {
@@ -74,6 +81,12 @@ func analyzeProfits() {
 	}
 	profits := []activityProfit{}
 	for _, activity := range activities {
+		if hasDate {
+			timestamp := time.Unix(activity.Timestamp, 0).UTC()
+			if timestamp.Before(date) {
+				continue
+			}
+		}
 		slug := activity.Slug
 		ignored := false
 		for _, pattern := range ignorePatterns {
@@ -144,25 +157,32 @@ func analyzeProfits() {
 			if err != nil {
 				return
 			}
-			outcome := getMarketOutcome(market)
-			if outcome == nil {
-				fmt.Printf("Warning: no outcome for market %s\n", market.Slug)
-				continue
-			}
-			var outcomeIndex int
-			if *outcome {
-				outcomeIndex = 0
-			} else {
-				outcomeIndex = 1
-			}
 			sellPrice := 0.0
-			for _, position := range profit.positions {
-				if position.outcomeIndex == outcomeIndex {
-					sellPrice += position.size
+			draw := isDraw(market)
+			if !draw {
+				outcome := getMarketOutcome(market)
+				if outcome == nil {
+					fmt.Printf("Warning: no outcome for market %s\n", market.Slug)
+					continue
 				}
-			}
-			if printResolveMessages {
-				fmt.Printf("Resolved market %s to outcome %d for %s\n", activity.Slug, outcomeIndex, commons.FormatMoney(sellPrice))
+				var outcomeIndex int
+				if *outcome {
+					outcomeIndex = 0
+				} else {
+					outcomeIndex = 1
+				}
+				for _, position := range profit.positions {
+					if position.outcomeIndex == outcomeIndex {
+						sellPrice += position.size
+					}
+				}
+				if printResolveMessages {
+					fmt.Printf("Resolved market %s to outcome %d for %s\n", activity.Slug, outcomeIndex, commons.FormatMoney(sellPrice))
+				}
+			} else {
+				for _, position := range profit.positions {
+					sellPrice += 0.5 * position.size
+				}
 			}
 			profit.sellPrice += sellPrice
 			profit.sold = true
@@ -191,6 +211,9 @@ func analyzeProfits() {
 	rows := [][]string{}
 	for _, category := range categories {
 		category.processProfits()
+		if len(category.returns) == 0 {
+			continue
+		}
 		riskAdjustedString := "-"
 		if len(category.returns) >= 2 {
 			riskAdjusted := stat.Mean(category.returns, nil) / stat.StdDev(category.returns, nil)
@@ -297,4 +320,8 @@ func (c *activityCategory) getPValue() float64 {
 	t := Z / s
 	p := 1 - distribution.CDF(t)
 	return p
+}
+
+func isDraw(market Market) bool {
+	return market.OutcomePrices == "[\"0.5\", \"0.5\"]"
 }
