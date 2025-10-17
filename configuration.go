@@ -84,6 +84,7 @@ type CategoryFilter struct {
 
 type IgnoreFilter struct {
 	Filters []string `yaml:"filters"`
+	Bypass []string `yaml:"bypass"`
 }
 
 type SerializableDecimal struct {

@@ -37,7 +37,8 @@ type activityCategory struct {
 	patterns []*regexp.Regexp
 	profits []activityProfit
 	lastRow bool
-	total float64
+	totalBuy float64
+	totalProfit float64
 	returns []float64
 	wins int
 }
@@ -58,10 +59,15 @@ func analyzeProfits(dateString string) {
 	}
 	activities := getAllActivities()
 	ignorePatterns := []*regexp.Regexp{}
+	bypassPatterns := []*regexp.Regexp{}
 	for _, group := range profitConfiguration.Ignore {
 		for _, filter := range group.Filters {
 			pattern := regexp.MustCompile(filter)
 			ignorePatterns = append(ignorePatterns, pattern)
+		}
+		for _, filter := range group.Bypass {
+			pattern := regexp.MustCompile(filter)
+			bypassPatterns = append(bypassPatterns, pattern)
 		}
 	}
 	categories := []activityCategory{}
@@ -95,7 +101,14 @@ func analyzeProfits(dateString string) {
 				break
 			}
 		}
-		if ignored {
+		bypass := false
+		for _, pattern := range bypassPatterns {
+			if pattern.MatchString(slug) {
+				bypass = true
+				break
+			}
+		}
+		if ignored && !bypass {
 			continue
 		}
 		i := slices.IndexFunc(profits, func (p activityProfit) bool {
@@ -203,6 +216,7 @@ func analyzeProfits(dateString string) {
 	header := []string{
 		"Category",
 		"Total PnL",
+		"Total Return",
 		"Return per Bet",
 		"Risk-Adjusted Return",
 		"Hit Rate",
@@ -214,15 +228,17 @@ func analyzeProfits(dateString string) {
 		if len(category.returns) == 0 {
 			continue
 		}
+		totalReturn := percent * category.totalProfit / category.totalBuy
 		riskAdjustedString := "-"
 		if len(category.returns) >= 2 {
 			riskAdjusted := stat.Mean(category.returns, nil) / stat.StdDev(category.returns, nil)
 			riskAdjustedString = fmt.Sprintf("%.2f", riskAdjusted)
 		}
-		percentage := percent * stat.Mean(category.returns, nil)
+		returnPerBet := percent * stat.Mean(category.returns, nil)
 		hitRate := percent * float64(category.wins) / float64(len(category.returns))
 		if category.lastRow {
 			emptyRow := []string{
+				"",
 				"",
 				"",
 				"",
@@ -234,8 +250,9 @@ func analyzeProfits(dateString string) {
 		}
 		row := []string{
 			category.name,
-			commons.FormatMoney(category.total),
-			fmt.Sprintf("%+.2f%%", percentage),
+			commons.FormatMoney(category.totalProfit),
+			fmt.Sprintf("%+.2f%%", totalReturn),
+			fmt.Sprintf("%+.2f%%", returnPerBet),
 			riskAdjustedString,
 			fmt.Sprintf("%.1f%%", hitRate),
 			commons.IntToString(len(category.returns)),
@@ -282,7 +299,8 @@ func getAllActivities() []Activity {
 }
 
 func (c *activityCategory) processProfits() {
-	c.total = 0.0
+	c.totalBuy = 0.0
+	c.totalProfit = 0.0
 	c.returns = []float64{}
 	c.wins = 0
 	for _, profit := range c.profits {
@@ -294,7 +312,8 @@ func (c *activityCategory) processProfits() {
 			buyPrice += position.size * position.price
 		}
 		delta := profit.sellPrice - buyPrice
-		c.total += delta
+		c.totalBuy += buyPrice
+		c.totalProfit += delta
 		r := profit.sellPrice / buyPrice - 1.0
 		if r > 0.0 {
 			c.wins++
