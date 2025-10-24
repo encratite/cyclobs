@@ -20,6 +20,10 @@ func downloadEvent(slug string, directory string) {
 	}
 	commons.CreateDirectory(directory)
 	for _, market := range event.Markets {
+		path := filepath.Join(directory, fmt.Sprintf("%s.csv", market.Slug))
+		if commons.FileExists(path) {
+			continue
+		}
 		startDate, err := commons.ParseTime(market.StartDate)
 		if err != nil {
 			createdDate, err := commons.ParseTime(market.CreatedAt)
@@ -42,7 +46,6 @@ func downloadEvent(slug string, directory string) {
 			timestamp := time.Unix(int64(sample.Time), 0).UTC()
 			output += fmt.Sprintf("%s,%g\n", commons.GetTimeString(timestamp), sample.Price)
 		}
-		path := filepath.Join(directory, fmt.Sprintf("%s.csv", market.Slug))
 		commons.WriteFile(path, output)
 		log.Printf("Downloaded %d samples to %s", len(history.History), path)
 	}

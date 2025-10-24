@@ -216,9 +216,8 @@ func analyzeProfits(dateString string) {
 	header := []string{
 		"Category",
 		"Total PnL",
+		"Amount Bet",
 		"Total Return",
-		"Return per Bet",
-		"Risk-Adjusted Return",
 		"Hit Rate",
 		"Number of Bets",
 	}
@@ -229,16 +228,9 @@ func analyzeProfits(dateString string) {
 			continue
 		}
 		totalReturn := percent * category.totalProfit / category.totalBuy
-		riskAdjustedString := "-"
-		if len(category.returns) >= 2 {
-			riskAdjusted := stat.Mean(category.returns, nil) / stat.StdDev(category.returns, nil)
-			riskAdjustedString = fmt.Sprintf("%.2f", riskAdjusted)
-		}
-		returnPerBet := percent * stat.Mean(category.returns, nil)
 		hitRate := percent * float64(category.wins) / float64(len(category.returns))
 		if category.lastRow {
 			emptyRow := []string{
-				"",
 				"",
 				"",
 				"",
@@ -251,9 +243,8 @@ func analyzeProfits(dateString string) {
 		row := []string{
 			category.name,
 			commons.FormatMoney(category.totalProfit),
+			commons.FormatMoney(category.totalBuy),
 			fmt.Sprintf("%+.2f%%", totalReturn),
-			fmt.Sprintf("%+.2f%%", returnPerBet),
-			riskAdjustedString,
 			fmt.Sprintf("%.1f%%", hitRate),
 			commons.IntToString(len(category.returns)),
 		}
@@ -261,7 +252,6 @@ func analyzeProfits(dateString string) {
 	}
 	alignments := []tw.Align{
         tw.AlignDefault,
-        tw.AlignRight,
         tw.AlignRight,
 		tw.AlignRight,
 		tw.AlignRight,
@@ -280,7 +270,7 @@ func analyzeProfits(dateString string) {
 	table.Render()
 	allCategory.processProfits()
 	p := allCategory.getPValue()
-	fmt.Printf("\np-value: %.2f", p)
+	fmt.Printf("\np-value: %.3f", p)
 }
 
 func getAllActivities() []Activity {

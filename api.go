@@ -134,3 +134,10 @@ func getActivities(proxyWallet string, offset int) ([]Activity, error) {
 	activities, err := getJSON[[]Activity](url, parameters)
 	return activities, err
 }
+
+func getTag(slug string) (Tag, error) {
+	url := fmt.Sprintf("https://gamma-api.polymarket.com/tags/slug/%s", slug)
+	parameters := map[string]string{}
+	tag, err := getJSON[Tag](url, parameters)
+	return tag, err
+}

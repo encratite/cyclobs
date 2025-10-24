@@ -146,7 +146,10 @@ type Tag struct {
 	Label string `json:"label"`
 	Slug string `json:"slug"`
 	ForceShow bool `json:"forceShow"`
+	PublishedAt string `json:"publishedAt"`
 	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+	IsCarousel bool `json:"isCarousel"`
 }
 
 type Token struct {

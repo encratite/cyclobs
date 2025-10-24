@@ -23,6 +23,7 @@ func main() {
 	live := flag.String("live", "", "Evaluate live betting trigger levels using on-chain data in the specified directory")
 	profit := flag.Bool("profit", false, "Analyze mean return and risk-adjusted return of trades by category")
 	date := flag.String("date", "", "Used in combination with -profit to restrict the time range of trades evaluated")
+	list := flag.String("list", "", "List markets matching a tag slug")
 	flag.Parse()
 	if *dataMode {
 		runMode(systemDataMode)
@@ -56,6 +57,8 @@ func main() {
 		evaluateLiveBetting(*live)
 	} else if *profit {
 		analyzeProfits(*date)
+	} else if *list != "" && *output != "" {
+		listMarkets(*list, *output)
 	} else {
 		flag.Usage()
 	}
