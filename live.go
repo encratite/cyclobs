@@ -72,7 +72,7 @@ func evaluateLiveData(directory string) (bool, *float64) {
 
 func getEarliestTriggerData(path string) (bool, *time.Time, *float64) {
 	liveRecords := []liveRecord{}
-	commons.ReadCsv(path, func (records []string) {
+	commons.ReadCSV(path, func (records []string) {
 		timestamp := commons.MustParseTime(records[0])
 		price := commons.MustParseFloat(records[1])	
 		record := liveRecord{

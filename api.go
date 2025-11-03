@@ -122,12 +122,14 @@ func getTrades(conditionID string, offset int) ([]Trade, error) {
 	return trades, err
 }
 
-func getActivities(proxyWallet string, offset int) ([]Activity, error) {
+func getActivities(proxyWallet string, offset int, start time.Time, end time.Time) ([]Activity, error) {
 	url := "https://data-api.polymarket.com/activity"
 	parameters := map[string]string{
 		"user": proxyWallet,
 		"limit": commons.IntToString(activityAPILimit),
 		"offset": commons.IntToString(offset),
+		"start": commons.Int64ToString(start.UTC().Unix()),
+		"end": commons.Int64ToString(end.UTC().Unix()),
 		"sortBy": "TIMESTAMP",
 		"sortDirection": "ASC",
 	}

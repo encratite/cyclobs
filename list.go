@@ -13,7 +13,7 @@ import (
 const (
 	listMarketsOrder = "startDate"
 	listMarketsFirstDate = "2024-01-01"
-	listMarketsFinalPriceOffset = 60
+	listMarketsFinalPriceOffset = 500
 	listMarketsLowerLimit = 0.015
 	listMarketsUpperLimit = 0.985
 )
@@ -97,7 +97,7 @@ func listMarkets(slug string, directory string) {
 		outcome := getMarketOutcome(market)
 		path := filepath.Join(directory, fmt.Sprintf("%s.csv", market.Slug))
 		prices := []float64{}
-		commons.ReadCsv(path, func (records []string) {
+		commons.ReadCSV(path, func (records []string) {
 			price, err := commons.ParseFloat(records[1])
 			if err != nil {
 				return

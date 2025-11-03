@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"log"
 	"math"
@@ -22,6 +23,7 @@ const (
 	activitySideBuy = "BUY"
 	activitySideSell = "SELL"
 	printResolveMessages = false
+	activityDays = 5
 )
 
 type activityProfit struct {
@@ -35,6 +37,7 @@ type activityProfit struct {
 type activityCategory struct {
 	name string
 	patterns []*regexp.Regexp
+	after *time.Time
 	profits []activityProfit
 	lastRow bool
 	totalBuy float64
@@ -83,12 +86,16 @@ func analyzeProfits(dateString string) {
 			profits: []activityProfit{},
 			lastRow: false,
 		}
+		if categoryData.After != nil {
+			category.after = &categoryData.After.Time
+		}
 		categories = append(categories, category)
 	}
 	profits := []activityProfit{}
 	for _, activity := range activities {
+		// fmt.Printf("Activity: %s\n", activity.Name)
+		timestamp := time.Unix(activity.Timestamp, 0).UTC()
 		if hasDate {
-			timestamp := time.Unix(activity.Timestamp, 0).UTC()
 			if timestamp.Before(date) {
 				continue
 			}
@@ -127,8 +134,13 @@ func analyzeProfits(dateString string) {
 			}
 			if !profitExists {
 				var category *activityCategory
+				outOfRange := false
 				for i := range categories {
 					c := &categories[i]
+					if c.after != nil && timestamp.Before(*c.after) {
+						outOfRange = true
+						break
+					}
 					for _, pattern := range c.patterns {
 						if pattern.MatchString(slug) {
 							category = c
@@ -138,6 +150,9 @@ func analyzeProfits(dateString string) {
 					if category != nil {
 						break
 					}
+				}
+				if outOfRange {
+					continue
 				}
 				if category == nil {
 					fmt.Printf("Warning: unable to find a matching category for \"%s\"\n", slug)
@@ -251,12 +266,12 @@ func analyzeProfits(dateString string) {
 		rows = append(rows, row)
 	}
 	alignments := []tw.Align{
-        tw.AlignDefault,
-        tw.AlignRight,
+		tw.AlignDefault,
 		tw.AlignRight,
 		tw.AlignRight,
 		tw.AlignRight,
-    }
+		tw.AlignRight,
+	}
 	tableConfig := tablewriter.WithConfig(tablewriter.Config{
 		Header: tw.CellConfig{
 			Formatting: tw.CellFormatting{AutoFormat: tw.Off},
@@ -275,16 +290,32 @@ func analyzeProfits(dateString string) {
 
 func getAllActivities() []Activity {
 	output := []Activity{}
-	for offset := 0;; offset += activityAPILimit {
-		activities, err := getActivities(configuration.Credentials.ProxyAddress, offset)
+	end := time.Now().UTC()
+	for {
+		start := end.Add(time.Duration(- activityDays * hoursPerDay) * time.Hour)
+		activities, err := getActivities(configuration.Credentials.ProxyAddress, 0, start, end)
 		if err != nil {
 			log.Fatalf("Failed to download activites: %v", err)
 		}
+		/*
+		if len(activities) > 0 {
+			first := time.Unix(activities[0].Timestamp, 0)
+			last := time.Unix(activities[len(activities) - 1].Timestamp, 0)
+			fmt.Printf("Downloaded activities from %s to %s\n", commons.GetDateString(first), commons.GetDateString(last))
+		}
+		*/
 		output = append(output, activities...)
-		if len(activities) < activityAPILimit {
+		if len(activities) == activityAPILimit {
+			log.Fatalf("Too many activities, decrease activityDays")
+		}
+		if len(activities) == 0 {
 			break
 		}
+		end = start
 	}
+	slices.SortFunc(output, func (a, b Activity) int {
+		return cmp.Compare(a.Timestamp, b.Timestamp)
+	})
 	return output
 }
 

@@ -80,6 +80,7 @@ type ProfitConfiguration struct {
 type CategoryFilter struct {
 	Name string `yaml:"name"`
 	Filters []string `yaml:"filters"`
+	After *commons.SerializableDate `yaml:"after"`
 }
 
 type IgnoreFilter struct {
