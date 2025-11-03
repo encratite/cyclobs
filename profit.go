@@ -23,7 +23,7 @@ const (
 	activitySideBuy = "BUY"
 	activitySideSell = "SELL"
 	printResolveMessages = false
-	activityDays = 5
+	activityDays = 7
 )
 
 type activityProfit struct {
@@ -271,6 +271,7 @@ func analyzeProfits(dateString string) {
 		tw.AlignRight,
 		tw.AlignRight,
 		tw.AlignRight,
+		tw.AlignRight,
 	}
 	tableConfig := tablewriter.WithConfig(tablewriter.Config{
 		Header: tw.CellConfig{
@@ -285,7 +286,7 @@ func analyzeProfits(dateString string) {
 	table.Render()
 	allCategory.processProfits()
 	p := allCategory.getPValue()
-	fmt.Printf("\np-value: %.3f", p)
+	fmt.Printf("\np-value: %.3f\n\n", p)
 }
 
 func getAllActivities() []Activity {
@@ -297,13 +298,6 @@ func getAllActivities() []Activity {
 		if err != nil {
 			log.Fatalf("Failed to download activites: %v", err)
 		}
-		/*
-		if len(activities) > 0 {
-			first := time.Unix(activities[0].Timestamp, 0)
-			last := time.Unix(activities[len(activities) - 1].Timestamp, 0)
-			fmt.Printf("Downloaded activities from %s to %s\n", commons.GetDateString(first), commons.GetDateString(last))
-		}
-		*/
 		output = append(output, activities...)
 		if len(activities) == activityAPILimit {
 			log.Fatalf("Too many activities, decrease activityDays")
