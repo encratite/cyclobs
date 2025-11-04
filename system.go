@@ -132,9 +132,6 @@ func (s *tradingSystem) runTriggerMode() {
 	}
 	markets := []Market{}
 	for _, position := range positions {
-		if position.PercentPnL == -100.0 {
-			continue
-		}
 		exists := commons.ContainsFunc(markets, func (m Market) bool {
 			return m.Slug == position.Slug
 		})
@@ -158,6 +155,7 @@ func (s *tradingSystem) runTriggerMode() {
 			log.Fatalf("Unable to find a position matching trigger slug \"%s\"", slug)
 		}
 		assetIDs = append(assetIDs, assetID)
+		log.Printf("Subscribed to market \"%s\"", slug)
 		data := triggerData{
 			slug: slug,
 			assetID: assetID,
@@ -166,9 +164,6 @@ func (s *tradingSystem) runTriggerMode() {
 			triggered: false,
 		}
 		s.triggers = append(s.triggers, data)
-	}
-	for _, market := range s.markets {
-		log.Printf("Subscribed to market \"%s\"", market.Slug)
 	}
 	s.subscribe(assetIDs)
 }
