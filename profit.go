@@ -85,6 +85,8 @@ func analyzeProfits(dateString string) {
 			patterns: patterns,
 			profits: []activityProfit{},
 			lastRow: false,
+			totalBuy: categoryData.Bet,
+			totalProfit: categoryData.Profit,
 		}
 		if categoryData.After != nil {
 			category.after = &categoryData.After.Time
@@ -221,6 +223,12 @@ func analyzeProfits(dateString string) {
 		patterns: nil,
 		profits: []activityProfit{},
 		lastRow: true,
+		totalBuy: 0.0,
+		totalProfit: 0.0,
+	}
+	for _, categoryData := range profitConfiguration.Categories {
+		allCategory.totalBuy += categoryData.Bet
+		allCategory.totalProfit += categoryData.Profit
 	}
 	for _, profit := range profits {
 		category := profit.category
@@ -279,6 +287,7 @@ func analyzeProfits(dateString string) {
 			Alignment: tw.CellAlignment{Global: tw.AlignLeft},
 		}},
 	)
+	fmt.Printf("\n")
 	alignmentConfig := tablewriter.WithAlignment(alignments)
 	table := tablewriter.NewTable(os.Stdout, tableConfig, alignmentConfig)
 	table.Header(header)
@@ -314,8 +323,6 @@ func getAllActivities() []Activity {
 }
 
 func (c *activityCategory) processProfits() {
-	c.totalBuy = 0.0
-	c.totalProfit = 0.0
 	c.returns = []float64{}
 	c.wins = 0
 	for _, profit := range c.profits {

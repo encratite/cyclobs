@@ -81,6 +81,8 @@ type CategoryFilter struct {
 	Name string `yaml:"name"`
 	Filters []string `yaml:"filters"`
 	After *commons.SerializableDate `yaml:"after"`
+	Bet float64 `yaml:"bet"`
+	Profit float64 `yaml:"profit"`
 }
 
 type IgnoreFilter struct {
