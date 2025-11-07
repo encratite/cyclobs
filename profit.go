@@ -64,7 +64,10 @@ func analyzeProfits(dateString string) {
 	ignorePatterns, bypassPatterns := getIgnorePatterns()
 	categories := getCategories()
 	profits := []activityProfit{}
-	processActivities(date, hasDate, ignorePatterns, bypassPatterns, activities, &profits, &categories)
+	processActivities(date, hasDate, ignorePatterns, bypassPatterns, activities, &categories, &profits)
+	if profitConfiguration.Live {
+		processPositions(&categories, &profits)
+	}
 	allCategory := getAllCategory(profits)
 	printCategories(categories, allCategory)
 }
@@ -139,8 +142,8 @@ func processActivities(
 	ignorePatterns []*regexp.Regexp,
 	bypassPatterns []*regexp.Regexp,
 	activities []Activity,
-	profits *[]activityProfit,
 	categories *[]activityCategory,
+	profits *[]activityProfit,
 ) {
 	for _, activity := range activities {
 		timestamp := time.Unix(activity.Timestamp, 0).UTC()
@@ -239,29 +242,8 @@ func processBuy(
 		size: activity.Size,
 	}
 	if !profitExists {
-		var category *activityCategory
-		outOfRange := false
-		for i := range *categories {
-			c := &(*categories)[i]
-			if c.after != nil && timestamp.Before(*c.after) {
-				outOfRange = true
-				break
-			}
-			for _, pattern := range c.patterns {
-				if pattern.MatchString(slug) {
-					category = c
-					break
-				}
-			}
-			if category != nil {
-				break
-			}
-		}
-		if outOfRange {
-			return
-		}
+		category := getMatchingCategory(timestamp, slug, categories)
 		if category == nil {
-			fmt.Printf("Warning: unable to find a matching category for \"%s\"\n", slug)
 			return
 		}
 		profit := activityProfit{
@@ -279,18 +261,74 @@ func processBuy(
 	}
 }
 
+func getMatchingCategory(timestamp time.Time, slug string, categories *[]activityCategory) *activityCategory {
+	var category *activityCategory
+	outOfRange := false
+	for i := range *categories {
+		c := &(*categories)[i]
+		if c.after != nil && timestamp.Before(*c.after) {
+			outOfRange = true
+			break
+		}
+		for _, pattern := range c.patterns {
+			if pattern.MatchString(slug) {
+				category = c
+				break
+			}
+		}
+		if category != nil {
+			break
+		}
+	}
+	if outOfRange {
+		return nil
+	}
+	if category == nil {
+		fmt.Printf("Warning: unable to find a matching category for \"%s\"\n", slug)
+		return nil
+	}
+	return category
+}
+
+func processPositions(categories *[]activityCategory, profits *[]activityProfit) {
+	positions, err := getPositions()
+	if err != nil {
+		log.Fatalf("Failed to get positions: %v", err)
+	}
+	for _, position := range positions {
+		// Using an unadjusted end date as the start date for range checks doesn't really make any sense
+		date, err := commons.ParseTime(position.EndDate)
+		if err != nil {
+			fmt.Printf("Warning: unable to parse end date of position %s\n", position.Slug)
+			continue
+		}
+		category := getMatchingCategory(date, position.Slug, categories)
+		if category == nil {
+			continue
+		}
+		sellValue := position.Size * position.CurPrice
+		profitPosition := activityPosition{
+			outcomeIndex: 0,
+			price: position.AvgPrice,
+			size: position.Size,
+		}
+		profit := activityProfit{
+			slug: position.Slug,
+			category: category,
+			positions: []activityPosition{profitPosition},
+			sellPrice: sellValue,
+			sold: true,
+		}
+		*profits = append(*profits, profit)
+	}
+}
+
 func getAllCategory(profits []activityProfit) activityCategory {
 	allCategory := activityCategory{
 		name: "All",
 		patterns: nil,
 		profits: []activityProfit{},
 		lastRow: true,
-		totalBuy: 0.0,
-		totalProfit: 0.0,
-	}
-	for _, categoryData := range profitConfiguration.Categories {
-		allCategory.totalBuy += categoryData.Bet
-		allCategory.totalProfit += categoryData.Profit
 	}
 	for _, profit := range profits {
 		category := profit.category
@@ -350,10 +388,10 @@ func printCategories(categories []activityCategory, allCategory activityCategory
 	header := []string{
 		"Category",
 		"Total PnL",
-		"Amount Bet",
+		"Volume",
 		"Total Return",
 		"Hit Rate",
-		"Number of Bets",
+		"Markets Traded",
 	}
 	rows := [][]string{}
 	for _, category := range categories {
