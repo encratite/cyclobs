@@ -61,6 +61,39 @@ func analyzeProfits(dateString string) {
 		hasDate = true
 	}
 	activities := getAllActivities()
+	ignorePatterns, bypassPatterns := getIgnorePatterns()
+	categories := getCategories()
+	profits := []activityProfit{}
+	processActivities(date, hasDate, ignorePatterns, bypassPatterns, activities, &profits, &categories)
+	allCategory := getAllCategory(profits)
+	printCategories(categories, allCategory)
+}
+
+func getAllActivities() []Activity {
+	output := []Activity{}
+	end := time.Now().UTC()
+	for {
+		start := end.Add(time.Duration(- activityDays * hoursPerDay) * time.Hour)
+		activities, err := getActivities(configuration.Credentials.ProxyAddress, 0, start, end)
+		if err != nil {
+			log.Fatalf("Failed to download activites: %v", err)
+		}
+		output = append(output, activities...)
+		if len(activities) == activityAPILimit {
+			log.Fatalf("Too many activities, decrease activityDays")
+		}
+		if len(activities) == 0 {
+			break
+		}
+		end = start
+	}
+	slices.SortFunc(output, func (a, b Activity) int {
+		return cmp.Compare(a.Timestamp, b.Timestamp)
+	})
+	return output
+}
+
+func getIgnorePatterns() ([]*regexp.Regexp, []*regexp.Regexp) {
 	ignorePatterns := []*regexp.Regexp{}
 	bypassPatterns := []*regexp.Regexp{}
 	for _, group := range profitConfiguration.Ignore {
@@ -73,6 +106,10 @@ func analyzeProfits(dateString string) {
 			bypassPatterns = append(bypassPatterns, pattern)
 		}
 	}
+	return ignorePatterns, bypassPatterns
+}
+
+func getCategories() []activityCategory {
 	categories := []activityCategory{}
 	for _, categoryData := range profitConfiguration.Categories {
 		patterns := []*regexp.Regexp{}
@@ -93,9 +130,19 @@ func analyzeProfits(dateString string) {
 		}
 		categories = append(categories, category)
 	}
-	profits := []activityProfit{}
+	return categories
+}
+
+func processActivities(
+	date time.Time,
+	hasDate bool,
+	ignorePatterns []*regexp.Regexp,
+	bypassPatterns []*regexp.Regexp,
+	activities []Activity,
+	profits *[]activityProfit,
+	categories *[]activityCategory,
+) {
 	for _, activity := range activities {
-		// fmt.Printf("Activity: %s\n", activity.Name)
 		timestamp := time.Unix(activity.Timestamp, 0).UTC()
 		if hasDate {
 			if timestamp.Before(date) {
@@ -120,65 +167,21 @@ func analyzeProfits(dateString string) {
 		if ignored && !bypass {
 			continue
 		}
-		i := slices.IndexFunc(profits, func (p activityProfit) bool {
+		index := slices.IndexFunc(*profits, func (p activityProfit) bool {
 			return p.slug == slug
 		})
-		profitExists := i >= 0
+		profitExists := index >= 0
 		isBuy := activity.Type == activityTypeTrade && activity.Side == activitySideBuy
 		isSell := activity.Type == activityTypeTrade && activity.Side == activitySideSell
 		isRedeem := activity.Type == activityTypeRedeem
 		if isBuy {
-			price := activity.USDCSize / activity.Size
-			position := activityPosition{
-				outcomeIndex: activity.OutcomeIndex,
-				price: price,
-				size: activity.Size,
-			}
-			if !profitExists {
-				var category *activityCategory
-				outOfRange := false
-				for i := range categories {
-					c := &categories[i]
-					if c.after != nil && timestamp.Before(*c.after) {
-						outOfRange = true
-						break
-					}
-					for _, pattern := range c.patterns {
-						if pattern.MatchString(slug) {
-							category = c
-							break
-						}
-					}
-					if category != nil {
-						break
-					}
-				}
-				if outOfRange {
-					continue
-				}
-				if category == nil {
-					fmt.Printf("Warning: unable to find a matching category for \"%s\"\n", slug)
-					continue
-				}
-				profit := activityProfit{
-					slug: slug,
-					category: category,
-					positions: []activityPosition{},
-					sellPrice: 0.0,
-					sold: false,
-				}
-				profit.positions = append(profit.positions, position)
-				profits = append(profits, profit)
-			} else {
-				profit := &profits[i]
-				profit.positions = append(profit.positions, position)
-			}
+			processBuy(activity, timestamp, slug, index, profitExists, categories, profits)
 		} else if isSell && profitExists {
-			profit := &profits[i]
+			profit := &(*profits)[index]
 			profit.sellPrice += activity.USDCSize
 			profit.sold = true
 		} else if isRedeem && profitExists {
-			profit := &profits[i]
+			profit := &(*profits)[index]
 			if profit.sold && profit.sellPrice > 0.0 {
 				// fmt.Printf("Warning: redeem after redeem/sell for %s\n", activity.Slug)
 				continue
@@ -218,6 +221,65 @@ func analyzeProfits(dateString string) {
 			profit.sold = true
 		}
 	}
+}
+
+func processBuy(
+	activity Activity,
+	timestamp time.Time,
+	slug string,
+	index int,
+	profitExists bool,
+	categories *[]activityCategory,
+	profits *[]activityProfit,
+) {
+	price := activity.USDCSize / activity.Size
+	position := activityPosition{
+		outcomeIndex: activity.OutcomeIndex,
+		price: price,
+		size: activity.Size,
+	}
+	if !profitExists {
+		var category *activityCategory
+		outOfRange := false
+		for i := range *categories {
+			c := &(*categories)[i]
+			if c.after != nil && timestamp.Before(*c.after) {
+				outOfRange = true
+				break
+			}
+			for _, pattern := range c.patterns {
+				if pattern.MatchString(slug) {
+					category = c
+					break
+				}
+			}
+			if category != nil {
+				break
+			}
+		}
+		if outOfRange {
+			return
+		}
+		if category == nil {
+			fmt.Printf("Warning: unable to find a matching category for \"%s\"\n", slug)
+			return
+		}
+		profit := activityProfit{
+			slug: slug,
+			category: category,
+			positions: []activityPosition{},
+			sellPrice: 0.0,
+			sold: false,
+		}
+		profit.positions = append(profit.positions, position)
+		*profits = append(*profits, profit)
+	} else {
+		profit := &(*profits)[index]
+		profit.positions = append(profit.positions, position)
+	}
+}
+
+func getAllCategory(profits []activityProfit) activityCategory {
 	allCategory := activityCategory{
 		name: "All",
 		patterns: nil,
@@ -235,6 +297,55 @@ func analyzeProfits(dateString string) {
 		category.profits = append(category.profits, profit)
 		allCategory.profits = append(allCategory.profits, profit)
 	}
+	return allCategory
+}
+
+func (c *activityCategory) processProfits() {
+	c.returns = []float64{}
+	c.wins = 0
+	for _, profit := range c.profits {
+		if !profit.sold {
+			continue
+		}
+		buyPrice := 0.0
+		for _, position := range profit.positions {
+			buyPrice += position.size * position.price
+		}
+		delta := profit.sellPrice - buyPrice
+		c.totalBuy += buyPrice
+		c.totalProfit += delta
+		r := profit.sellPrice / buyPrice - 1.0
+		if r > 0.0 {
+			c.wins++
+		}
+		c.returns = append(c.returns, r)
+	}
+}
+
+func (c *activityCategory) getPValue() float64 {
+	returns := c.returns
+	mean := stat.Mean(returns, nil)
+	stdDev := stat.StdDev(returns, nil)
+	n := float64(len(returns))
+	degrees := n - 1.0
+	distribution := distuv.StudentsT{
+		Mu: 0,
+		Sigma: 1,
+		Nu: degrees,
+	}
+	const randomMean = 0.0
+	Z := mean - randomMean
+	s := stdDev / math.Sqrt(n)
+	t := Z / s
+	p := 1 - distribution.CDF(t)
+	return p
+}
+
+func isDraw(market Market) bool {
+	return market.OutcomePrices == "[\"0.5\", \"0.5\"]"
+}
+
+func printCategories(categories []activityCategory, allCategory activityCategory) {
 	categories = append(categories, allCategory)
 	header := []string{
 		"Category",
@@ -296,73 +407,4 @@ func analyzeProfits(dateString string) {
 	allCategory.processProfits()
 	p := allCategory.getPValue()
 	fmt.Printf("\np-value: %.3f\n\n", p)
-}
-
-func getAllActivities() []Activity {
-	output := []Activity{}
-	end := time.Now().UTC()
-	for {
-		start := end.Add(time.Duration(- activityDays * hoursPerDay) * time.Hour)
-		activities, err := getActivities(configuration.Credentials.ProxyAddress, 0, start, end)
-		if err != nil {
-			log.Fatalf("Failed to download activites: %v", err)
-		}
-		output = append(output, activities...)
-		if len(activities) == activityAPILimit {
-			log.Fatalf("Too many activities, decrease activityDays")
-		}
-		if len(activities) == 0 {
-			break
-		}
-		end = start
-	}
-	slices.SortFunc(output, func (a, b Activity) int {
-		return cmp.Compare(a.Timestamp, b.Timestamp)
-	})
-	return output
-}
-
-func (c *activityCategory) processProfits() {
-	c.returns = []float64{}
-	c.wins = 0
-	for _, profit := range c.profits {
-		if !profit.sold {
-			continue
-		}
-		buyPrice := 0.0
-		for _, position := range profit.positions {
-			buyPrice += position.size * position.price
-		}
-		delta := profit.sellPrice - buyPrice
-		c.totalBuy += buyPrice
-		c.totalProfit += delta
-		r := profit.sellPrice / buyPrice - 1.0
-		if r > 0.0 {
-			c.wins++
-		}
-		c.returns = append(c.returns, r)
-	}
-}
-
-func (c *activityCategory) getPValue() float64 {
-	returns := c.returns
-	mean := stat.Mean(returns, nil)
-	stdDev := stat.StdDev(returns, nil)
-	n := float64(len(returns))
-	degrees := n - 1.0
-	distribution := distuv.StudentsT{
-		Mu: 0,
-		Sigma: 1,
-		Nu: degrees,
-	}
-	const randomMean = 0.0
-	Z := mean - randomMean
-	s := stdDev / math.Sqrt(n)
-	t := Z / s
-	p := 1 - distribution.CDF(t)
-	return p
-}
-
-func isDraw(market Market) bool {
-	return market.OutcomePrices == "[\"0.5\", \"0.5\"]"
 }
