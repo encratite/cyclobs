@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/encratite/commons"
+	"github.com/encratite/gamma"
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/tw"
 	"gonum.org/v1/gonum/stat"
@@ -24,6 +25,7 @@ const (
 	activitySideSell = "SELL"
 	printResolveMessages = false
 	activityDays = 7
+	printPValue = false
 )
 
 type activityProfit struct {
@@ -72,17 +74,17 @@ func analyzeProfits(dateString string) {
 	printCategories(categories, allCategory)
 }
 
-func getAllActivities() []Activity {
-	output := []Activity{}
+func getAllActivities() []gamma.Activity {
+	output := []gamma.Activity{}
 	end := time.Now().UTC()
 	for {
 		start := end.Add(time.Duration(- activityDays * hoursPerDay) * time.Hour)
-		activities, err := getActivities(configuration.Credentials.ProxyAddress, 0, start, end)
+		activities, err := gamma.GetActivities(configuration.Credentials.ProxyAddress, 0, start, end)
 		if err != nil {
 			log.Fatalf("Failed to download activites: %v", err)
 		}
 		output = append(output, activities...)
-		if len(activities) == activityAPILimit {
+		if len(activities) == gamma.ActivityAPILimit {
 			log.Fatalf("Too many activities, decrease activityDays")
 		}
 		if len(activities) == 0 {
@@ -90,7 +92,7 @@ func getAllActivities() []Activity {
 		}
 		end = start
 	}
-	slices.SortFunc(output, func (a, b Activity) int {
+	slices.SortFunc(output, func (a, b gamma.Activity) int {
 		return cmp.Compare(a.Timestamp, b.Timestamp)
 	})
 	return output
@@ -141,7 +143,7 @@ func processActivities(
 	hasDate bool,
 	ignorePatterns []*regexp.Regexp,
 	bypassPatterns []*regexp.Regexp,
-	activities []Activity,
+	activities []gamma.Activity,
 	categories *[]activityCategory,
 	profits *[]activityProfit,
 ) {
@@ -189,7 +191,7 @@ func processActivities(
 				// fmt.Printf("Warning: redeem after redeem/sell for %s\n", activity.Slug)
 				continue
 			}
-			market, err := getMarket(activity.Slug)
+			market, err := gamma.GetMarket(activity.Slug)
 			if err != nil {
 				return
 			}
@@ -227,7 +229,7 @@ func processActivities(
 }
 
 func processBuy(
-	activity Activity,
+	activity gamma.Activity,
 	timestamp time.Time,
 	slug string,
 	index int,
@@ -291,7 +293,7 @@ func getMatchingCategory(timestamp time.Time, slug string, categories *[]activit
 }
 
 func processPositions(categories *[]activityCategory, profits *[]activityProfit) {
-	positions, err := getPositions()
+	positions, err := gamma.GetPositions(configuration.Credentials.ProxyAddress)
 	if err != nil {
 		log.Fatalf("Failed to get positions: %v", err)
 	}
@@ -379,7 +381,7 @@ func (c *activityCategory) getPValue() float64 {
 	return p
 }
 
-func isDraw(market Market) bool {
+func isDraw(market gamma.Market) bool {
 	return market.OutcomePrices == "[\"0.5\", \"0.5\"]"
 }
 
@@ -443,6 +445,8 @@ func printCategories(categories []activityCategory, allCategory activityCategory
 	table.Bulk(rows)
 	table.Render()
 	allCategory.processProfits()
-	p := allCategory.getPValue()
-	fmt.Printf("\np-value: %.3f\n\n", p)
+	if printPValue {
+		p := allCategory.getPValue()
+		fmt.Printf("\np-value: %.3f\n\n", p)
+	}
 }

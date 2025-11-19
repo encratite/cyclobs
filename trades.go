@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/encratite/commons"
+	"github.com/encratite/gamma"
 )
 
 const (
@@ -19,7 +20,7 @@ const (
 func downloadTrades(slug, directory string) {
 	outputDirectory := filepath.Join(directory, slug)
 	commons.CreateDirectory(outputDirectory)
-	event, err := getEventBySlug(slug)
+	event, err := gamma.GetEventBySlug(slug)
 	if err != nil {
 		return
 	}
@@ -41,10 +42,10 @@ func downloadMarketTrades(slug, conditionID, yesID, directory string) {
 		log.Printf("%s already exists, skipping\n", buyOutputPath)
 		return
 	}
-	buys := []Trade{}
-	sells := []Trade{}
-	for offset := 0; offset <= tradesAPIOffsetLimit; offset += tradesAPILimit {
-		trades, err := getTrades(conditionID, offset)
+	buys := []gamma.Trade{}
+	sells := []gamma.Trade{}
+	for offset := 0; offset <= gamma.TradesAPIOffsetLimit; offset += gamma.TradesAPILimit {
+		trades, err := gamma.GetTrades(conditionID, offset)
 		if err != nil {
 			return
 		}
@@ -65,7 +66,7 @@ func downloadMarketTrades(slug, conditionID, yesID, directory string) {
 			lastTimestampString = commons.GetTimeString(lastTimestamp)
 		}
 		log.Printf("Downloaded data: slug = %s, offset = %d, trades = %d, lastTimestamp = %s", slug, offset, len(trades), lastTimestampString)
-		if len(trades) < tradesAPILimit {
+		if len(trades) < gamma.TradesAPILimit {
 			break
 		}
 		time.Sleep(time.Duration(tradesDownloadThrottle) * time.Millisecond)
@@ -74,11 +75,11 @@ func downloadMarketTrades(slug, conditionID, yesID, directory string) {
 	writeTradesToFile(sells, sellOutputPath)
 }
 
-func writeTradesToFile(trades []Trade, path string) {
+func writeTradesToFile(trades []gamma.Trade, path string) {
 	if len(trades) == 0 {
 		return
 	}
-	slices.SortFunc(trades, func (a, b Trade) int {
+	slices.SortFunc(trades, func (a, b gamma.Trade) int {
 		return cmp.Compare(a.Timestamp, b.Timestamp)
 	})
 	output := "time,price,size\n"

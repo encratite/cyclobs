@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/encratite/commons"
+	"github.com/encratite/gamma"
 )
 
 type tagCount struct {
@@ -15,7 +16,7 @@ type tagCount struct {
 }
 
 func showEventTags(slug string) {
-	event, err := getEventBySlug(slug)
+	event, err := gamma.GetEventBySlug(slug)
 	if err != nil {
 		log.Fatalf("Failed to get event %s: %v", slug, err)
 	}
@@ -23,7 +24,7 @@ func showEventTags(slug string) {
 	if err != nil {
 		log.Fatalf("Failed to parse event ID: %s", event.ID)
 	}
-	eventTags, err := getEventTags(id)
+	eventTags, err := gamma.GetEventTags(id)
 	if err != nil {
 		log.Fatalf("Failed to get event tags for %s: %v", slug, err)
 	}

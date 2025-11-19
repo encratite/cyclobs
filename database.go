@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/emirpasic/gods/maps/treemap"
+	"github.com/encratite/gamma"
 	"github.com/shopspring/decimal"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -208,7 +209,7 @@ func (c *databaseClient) close() {
 	c.client.Disconnect(ctx)
 }
 
-func (c *databaseClient) insertMarkets(markets []Market, assetIDs []string, eventSlugMap map[string]string) {
+func (c *databaseClient) insertMarkets(markets []gamma.Market, assetIDs []string, eventSlugMap map[string]string) {
 	dbMarkets := []MarketBSON{}
 	dbVolume := []MarketVolume{}
 	now := time.Now()
@@ -244,18 +245,18 @@ func (c *databaseClient) insertMarkets(markets []Market, assetIDs []string, even
 	}
 }
 
-func (c *databaseClient) insertBookMessage(message BookMessage, subscription marketSubscription) {
+func (c *databaseClient) insertBookMessage(message gamma.BookMessage, subscription marketSubscription) {
 	switch message.EventType {
-	case bookEvent:
+	case gamma.BookEvent:
 		c.insertBookEvent(message)
-	case priceChangeEvent:
+	case gamma.PriceChangeEvent:
 		c.insertPriceChange(message)
-	case lastTradePriceEvent:
+	case gamma.LastTradePriceEvent:
 		c.insertLastTradePrice(message, subscription)
 	}
 }
 
-func (c *databaseClient) insertBookEvent(message BookMessage) {
+func (c *databaseClient) insertBookEvent(message gamma.BookMessage) {
 	serverTime, err := convertTimestampString(message.Timestamp)
 	if err != nil {
 		return
@@ -284,7 +285,7 @@ func (c *databaseClient) insertBookEvent(message BookMessage) {
 	}
 }
 
-func (c *databaseClient) insertPriceChange(message BookMessage) {
+func (c *databaseClient) insertPriceChange(message gamma.BookMessage) {
 	serverTime, err := convertTimestampString(message.Timestamp)
 	if err != nil {
 		return
@@ -320,7 +321,7 @@ func (c *databaseClient) insertPriceChange(message BookMessage) {
 	}
 }
 
-func (c *databaseClient) insertLastTradePrice(message BookMessage, subscription marketSubscription) {
+func (c *databaseClient) insertLastTradePrice(message gamma.BookMessage, subscription marketSubscription) {
 	serverTime, err := convertTimestampString(message.Timestamp)
 	if err != nil {
 		return
@@ -511,7 +512,7 @@ func convertSide(side string) (bool, error) {
 	}
 }
 
-func convertOrderSummaries(summaries []OrderSummary) ([]PriceLevel, error) {
+func convertOrderSummaries(summaries []gamma.OrderSummary) ([]PriceLevel, error) {
 	priceLevels := []PriceLevel{}
 	for _, summary := range summaries {
 		price, size, err := convertPriceSize(summary.Price, summary.Size)

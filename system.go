@@ -6,23 +6,19 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"regexp"
 	"slices"
 	"time"
 
 	"github.com/emirpasic/gods/maps/treemap"
 	"github.com/encratite/commons"
+	"github.com/encratite/gamma"
 	"github.com/gammazero/deque"
 	"github.com/polymarket/go-order-utils/pkg/model"
 	"github.com/shopspring/decimal"
 )
 
 const (
-	eventsLimit = 250
 	reconnectDelay = 5
-	bookEvent = "book"
-	priceChangeEvent = "price_change"
-	lastTradePriceEvent = "last_trade_price"
 	debugPriceChange = false
 	debugLastTradePrice = true
 	debugOrderBook = false
@@ -39,7 +35,7 @@ const (
 
 type tradingSystem struct {
 	mode tradingSystemMode
-	markets []Market
+	markets []gamma.Market
 	subscriptions map[string]marketSubscription
 	database databaseClient
 	triggers []triggerData
@@ -74,7 +70,7 @@ func runMode(mode tradingSystemMode) {
 	database := newDatabaseClient()
 	system := tradingSystem{
 		mode: mode,
-		markets: []Market{},
+		markets: []gamma.Market{},
 		subscriptions: map[string]marketSubscription{},
 		database: database,
 		triggers: []triggerData{},
@@ -108,7 +104,7 @@ func (s *tradingSystem) runDataMode() {
 	}
 	printMarketStats(markets)
 	for _, eventSlug := range configuration.Data.Events {
-		event, err := getEventBySlug(eventSlug)
+		event, err := gamma.GetEventBySlug(eventSlug)
 		if err != nil {
 			return
 		}
@@ -126,17 +122,17 @@ func (s *tradingSystem) runDataMode() {
 }
 
 func (s *tradingSystem) runTriggerMode() {
-	positions, err := getPositions()
+	positions, err := gamma.GetPositions(configuration.Credentials.ProxyAddress)
 	if err != nil {
 		return
 	}
-	markets := []Market{}
+	markets := []gamma.Market{}
 	for _, position := range positions {
-		exists := commons.ContainsFunc(markets, func (m Market) bool {
+		exists := commons.ContainsFunc(markets, func (m gamma.Market) bool {
 			return m.Slug == position.Slug
 		})
 		if !exists {
-			market, err := getMarket(position.Slug)
+			market, err := gamma.GetMarket(position.Slug)
 			if err != nil {
 				return
 			}
@@ -147,7 +143,7 @@ func (s *tradingSystem) runTriggerMode() {
 	assetIDs := []string{}
 	for _, trigger := range configuration.Trigger.Triggers {
 		slug := *trigger.Slug
-		position, exists := commons.Find(positions, func (p Position) bool {
+		position, exists := commons.Find(positions, func (p gamma.Position) bool {
 			return p.Slug == slug
 		})
 		assetID := position.Asset
@@ -169,7 +165,7 @@ func (s *tradingSystem) runTriggerMode() {
 }
 
 func (s *tradingSystem) subscribe(assetIDs []string) {
-	err := subscribeToMarkets(assetIDs, s.onBookMessage)
+	err := gamma.SubscribeToMarkets(assetIDs, s.onBookMessage)
 	if err != nil {
 		log.Printf("Subscription error: %v", err)
 	}
@@ -186,17 +182,17 @@ func (s *tradingSystem) interrupt() {
 	}()
 }
 
-func (s *tradingSystem) onBookMessage(message BookMessage) {
+func (s *tradingSystem) onBookMessage(message gamma.BookMessage) bool {
 	subscription, exists := s.getSubscription(message)
 	if !exists {
-		return
+		return true
 	}
 	switch message.EventType {
-	case bookEvent:
+	case gamma.BookEvent:
 		s.onBookEvent(message, &subscription)
-	case priceChangeEvent:
+	case gamma.PriceChangeEvent:
 		s.onPriceChange(message, &subscription)
-	case lastTradePriceEvent:
+	case gamma.LastTradePriceEvent:
 		s.onLastTradePrice(message, &subscription)
 	}
 	if s.mode == systemDataMode || (s.mode == systemTriggerMode && *configuration.Trigger.RecordData) {
@@ -204,9 +200,10 @@ func (s *tradingSystem) onBookMessage(message BookMessage) {
 	}
 	_ = subscription.validateOrderBook()
 	s.subscriptions[message.Market] = subscription
+	return true
 }
 
-func (s *tradingSystem) onBookEvent(message BookMessage, subscription *marketSubscription) {
+func (s *tradingSystem) onBookEvent(message gamma.BookMessage, subscription *marketSubscription) {
 	putPriceLevels(subscription.bids, message.Bids)
 	putPriceLevels(subscription.asks, message.Asks)
 	if debugOrderBook {
@@ -214,11 +211,11 @@ func (s *tradingSystem) onBookEvent(message BookMessage, subscription *marketSub
 	}
 }
 
-func (s *tradingSystem) onPriceChange(message BookMessage, subscription *marketSubscription) {
+func (s *tradingSystem) onPriceChange(message gamma.BookMessage, subscription *marketSubscription) {
 	for i, change := range message.PriceChanges {
 		if debugPriceChange {
 			format := "%s[%d]: slug = %s, conditionID = %s, assetID = %s, price = %s, size = %s, side = %s, best_bid = %s, best_ask = %s"
-			log.Printf(format, priceChangeEvent, i, subscription.slug, subscription.conditionID, subscription.assetID, change.Price, change.Size, change.Side, change.BestBid, change.BestAsk)
+			log.Printf(format, gamma.PriceChangeEvent, i, subscription.slug, subscription.conditionID, subscription.assetID, change.Price, change.Size, change.Side, change.BestBid, change.BestAsk)
 		}
 		price, size, err := getPriceSize(change.Price, change.Size)
 		if err != nil {
@@ -275,7 +272,7 @@ func (s *tradingSystem) onPriceChange(message BookMessage, subscription *marketS
 	}
 }
 
-func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription *marketSubscription) {
+func (s *tradingSystem) onLastTradePrice(message gamma.BookMessage, subscription *marketSubscription) {
 	price, size, err := getPriceSize(message.Price, message.Size)
 	if err != nil {
 		return
@@ -286,7 +283,7 @@ func (s *tradingSystem) onLastTradePrice(message BookMessage, subscription *mark
 		size: size,
 	}
 	if debugLastTradePrice {
-		log.Printf("%s: slug = %s, price = %s, size = %s, side = %s", lastTradePriceEvent, subscription.slug, message.Price, message.Size, message.Side)
+		log.Printf("%s: slug = %s, price = %s, size = %s, side = %s", gamma.LastTradePriceEvent, subscription.slug, message.Price, message.Size, message.Side)
 	}
 	subscription.add(event)
 	if s.mode == systemTriggerMode {
@@ -331,18 +328,18 @@ func (s *tradingSystem) processTrigger(price decimal.Decimal, side string, subsc
 	}
 }
 
-func (s *tradingSystem) getMarket(conditionID string) (Market, bool) {
-	market, exists := commons.Find(s.markets, func (market Market) bool {
+func (s *tradingSystem) getMarket(conditionID string) (gamma.Market, bool) {
+	market, exists := commons.Find(s.markets, func (market gamma.Market) bool {
 		return market.ConditionID == conditionID
 	})
 	if exists {
 		return market, true
 	} else {
-		return Market{}, false
+		return gamma.Market{}, false
 	}
 }
 
-func (s *tradingSystem) getSubscription(message BookMessage) (marketSubscription, bool) {
+func (s *tradingSystem) getSubscription(message gamma.BookMessage) (marketSubscription, bool) {
 	conditionID := message.Market
 	assetID := message.AssetID
 	subscription, exists := s.subscriptions[conditionID]
@@ -441,11 +438,11 @@ func getPriceSize(priceString string, sizeString string) (decimal.Decimal, decim
 	return price, size, nil
 }
 
-func getEventMarkets() ([]Market, map[string]string, error) {
-	markets := []Market{}
+func getEventMarkets() ([]gamma.Market, map[string]string, error) {
+	markets := []gamma.Market{}
 	eventSlugMap := map[string]string{}
 	for _, tagSlug := range configuration.Data.TagSlugs {
-		events, err := getEvents(&tagSlug)
+		events, err := gamma.GetEvents(&tagSlug)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -461,7 +458,7 @@ func getEventMarkets() ([]Market, map[string]string, error) {
 				if volume.LessThan(configuration.Data.MinVolume.Decimal) {
 					continue
 				}
-				exists := commons.ContainsFunc(markets, func (m Market) bool {
+				exists := commons.ContainsFunc(markets, func (m gamma.Market) bool {
 					return m.ConditionID == market.ConditionID
 				})
 				if exists {
@@ -472,16 +469,16 @@ func getEventMarkets() ([]Market, map[string]string, error) {
 			}
 		}
 	}
-	slices.SortFunc(markets, func (a, b Market) int {
+	slices.SortFunc(markets, func (a, b gamma.Market) int {
 			return cmp.Compare(b.Volume24Hr, a.Volume24Hr)
 	})
-	if len(markets) > marketChannelLimit {
-		markets = markets[:marketChannelLimit]
+	if len(markets) > gamma.MarketChannelLimit {
+		markets = markets[:gamma.MarketChannelLimit]
 	}
 	return markets, eventSlugMap, nil
 }
 
-func printMarketStats(markets []Market) {
+func printMarketStats(markets []gamma.Market) {
 	if len(markets) < 2 {
 		log.Printf("Warning: not enough markets to analyze volume")
 		return
@@ -491,40 +488,15 @@ func printMarketStats(markets []Market) {
 	log.Printf("Market 24h volume range: %.2f - %.2f", last.Volume24Hr, first.Volume24Hr)
 }
 
-func getAssetIDs(markets []Market) []string {
-	assetIDs := []string{}
-	for _, market := range markets {
-		yesTokenID, err := getCLOBTokenID(market, true)
-		if err != nil {
-			continue
-		}
-		assetIDs = append(assetIDs, yesTokenID)
-	}
-	return assetIDs
+func getAssetIDs(markets []gamma.Market) []string {
+	return gamma.GetAssetIDs(markets)
 }
 
-var clobTokenIdPattern = regexp.MustCompile(`\d+`)
-
-func getCLOBTokenID(market Market, yes bool) (string, error) {
-	tokenIDs := []string{}
-	matches := clobTokenIdPattern.FindAllStringSubmatch(market.CLOBTokenIDs, -1)
-	for _, match := range matches {
-		tokenId := match[0]
-		tokenIDs = append(tokenIDs, tokenId)
-	}
-	if len(tokenIDs) != 2 {
-		err := fmt.Errorf("unable to extract token ID: slug = %s, yes = %t, CLOBTokenIDs = %s", market.Slug, yes, market.CLOBTokenIDs)
-		log.Printf("Warning: %v", err)
-		return "", err
-	}
-	if yes {
-		return tokenIDs[0], nil
-	} else {
-		return tokenIDs[1], nil
-	}
+func getCLOBTokenID(market gamma.Market, yes bool) (string, error) {
+	return gamma.GetCLOBTokenID(market, yes)
 }
 
-func putPriceLevels(destination *treemap.Map, source []OrderSummary) {
+func putPriceLevels(destination *treemap.Map, source []gamma.OrderSummary) {
 	destination.Clear()
 	for _, summary := range source {
 		price, size, err := getPriceSize(summary.Price, summary.Size)

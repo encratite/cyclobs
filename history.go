@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/encratite/commons"
+	"github.com/encratite/gamma"
 )
 
 const (
@@ -22,7 +23,7 @@ func updateHistory() {
 	defer database.close()
 	for offset := 0; offset < historyMaxOffset; offset += historyPageLimit {
 		log.Printf("Downloading markets at offset %d", offset)
-		markets, err := getMarkets(offset, historyPageLimit, historyOrder, historyStartDateMin, nil)
+		markets, err := gamma.GetMarkets(offset, historyPageLimit, historyOrder, historyStartDateMin, nil)
 		if err != nil {
 			return
 		}
@@ -49,7 +50,7 @@ func updateHistory() {
 			if err != nil {
 				continue
 			}
-			eventTags, err := getEventTags(eventID)
+			eventTags, err := gamma.GetEventTags(eventID)
 			if err != nil {
 				continue
 			}
@@ -70,7 +71,7 @@ func updateHistory() {
 			if err != nil {
 				continue
 			}
-			history, err := getPriceHistory(yesID, startDate, historyFidelity)
+			history, err := gamma.GetPriceHistory(yesID, startDate, historyFidelity)
 			dbSamples := []PriceHistorySampleBSON{}
 			for _, s := range history.History {
 				timestamp := time.Unix(int64(s.Time), 0).UTC()
@@ -98,7 +99,7 @@ func updateHistory() {
 	}
 }
 
-func getMarketOutcome(market Market) *bool {
+func getMarketOutcome(market gamma.Market) *bool {
 	var outcome bool
 	switch market.OutcomePrices {
 	case "[\"0\", \"1\"]":

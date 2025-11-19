@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/encratite/commons"
+	"github.com/encratite/gamma"
 	"gonum.org/v1/gonum/stat"
 )
 
@@ -31,14 +32,14 @@ type listOutcomeBin struct {
 }
 
 func listMarkets(slug string, directory string) {
-	tag, err := getTag(slug)
+	tag, err := gamma.GetTag(slug)
 	if err != nil {
 		log.Fatalf("Failed to retrieve tag: %v", err)
 	}
 	tagID := commons.MustParseInt(tag.ID)
-	markets := []Market{}
+	markets := []gamma.Market{}
 	for offset := 0;; offset += historyPageLimit {
-		marketBatch, err := getMarkets(offset, historyPageLimit, listMarketsOrder, listMarketsFirstDate, &tagID)
+		marketBatch, err := gamma.GetMarkets(offset, historyPageLimit, listMarketsOrder, listMarketsFirstDate, &tagID)
 		if err != nil {
 			log.Fatalf("Failed to get markets: %v", err)
 		}

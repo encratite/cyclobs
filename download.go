@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/encratite/commons"
+	"github.com/encratite/gamma"
 )
 
 const (
@@ -14,7 +15,7 @@ const (
 )
 
 func downloadEvent(slug string, directory string) {
-	event, err := getEventBySlug(slug)
+	event, err := gamma.GetEventBySlug(slug)
 	if err != nil {
 		return
 	}
@@ -37,7 +38,7 @@ func downloadEvent(slug string, directory string) {
 		if err != nil {
 			return
 		}
-		history, err := getPriceHistory(yesID, startDate, historyFidelitySingle)
+		history, err := gamma.GetPriceHistory(yesID, startDate, historyFidelitySingle)
 		if err != nil {
 			return
 		}

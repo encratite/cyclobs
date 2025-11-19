@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/encratite/commons"
+	"github.com/encratite/gamma"
 	"github.com/fatih/color"
 	"github.com/gammazero/deque"
 	"github.com/shopspring/decimal"
@@ -21,7 +22,7 @@ type jumpTradingSystem struct {
 }
 
 type jumpSubscription struct {
-	market Market
+	market gamma.Market
 	yesID string
 	prices deque.Deque[jumpPriceEvent]
 	triggered bool
@@ -73,7 +74,7 @@ func (s *jumpTradingSystem) run() {
 			assetIDs = append(assetIDs, yesID)
 		}
 		log.Printf("Subscribed to %d markets", len(assetIDs))
-		err := subscribeToMarkets(assetIDs, s.onBookMessage)
+		err := gamma.SubscribeToMarkets(assetIDs, s.onBookMessage)
 		if err != nil {
 			log.Printf("Subscription error: %v", err)
 		}
@@ -81,8 +82,8 @@ func (s *jumpTradingSystem) run() {
 	}
 }
 
-func (s *jumpTradingSystem) getMarkets() []Market {
-	markets := []Market{}
+func (s *jumpTradingSystem) getMarkets() []gamma.Market {
+	markets := []gamma.Market{}
 	if len(s.includeTags) > 0 {
 		for _, tagSlug := range s.includeTags {
 			err := s.addMarkets(&tagSlug, &markets)
@@ -96,9 +97,9 @@ func (s *jumpTradingSystem) getMarkets() []Market {
 	return markets
 }
 
-func (s *jumpTradingSystem) addMarkets(tagSlug *string, markets *[]Market) error {
+func (s *jumpTradingSystem) addMarkets(tagSlug *string, markets *[]gamma.Market) error {
 	const negRisk = false
-	events, err := getEvents(tagSlug)
+	events, err := gamma.GetEvents(tagSlug)
 	if err != nil {
 		return err
 	}
@@ -124,23 +125,24 @@ func (s *jumpTradingSystem) addMarkets(tagSlug *string, markets *[]Market) error
 	return nil
 }
 
-func (s *jumpTradingSystem) onBookMessage(message BookMessage) {
+func (s *jumpTradingSystem) onBookMessage(message gamma.BookMessage) bool {
 	key := message.Market
 	subscription, exists := s.subscriptions[key]
 	if !exists {
 		log.Printf("Warning: received a message for an unknown subscription for market %s", message.Market)
-		return
+		return true
 	}
 	switch message.EventType {
-	case priceChangeEvent:
+	case gamma.PriceChangeEvent:
 		s.onPriceChange(message, &subscription)
-	case lastTradePriceEvent:
+	case gamma.LastTradePriceEvent:
 		s.onLastTradePrice(message, &subscription)
 	}
 	s.subscriptions[key] = subscription
+	return true
 }
 
-func (s *jumpTradingSystem) onPriceChange(message BookMessage, subscription *jumpSubscription) {
+func (s *jumpTradingSystem) onPriceChange(message gamma.BookMessage, subscription *jumpSubscription) {
 	for _, change := range message.PriceChanges {
 		if change.AssetID == subscription.yesID {
 			bestAsk, err := decimal.NewFromString(change.BestAsk)
@@ -159,7 +161,7 @@ func (s *jumpTradingSystem) onPriceChange(message BookMessage, subscription *jum
 	}
 }
 
-func (s *jumpTradingSystem) onLastTradePrice(message BookMessage, subscription *jumpSubscription) {
+func (s *jumpTradingSystem) onLastTradePrice(message gamma.BookMessage, subscription *jumpSubscription) {
 	price, _, err := getPriceSize(message.Price, message.Size)
 	if err != nil {
 		return

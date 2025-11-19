@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"github.com/encratite/commons"
+	"github.com/encratite/gamma"
 	"github.com/fatih/color"
 )
 
 type screenerData struct {
-	market Market
-	tags []EventTag
+	market gamma.Market
+	tags []gamma.EventTag
 }
 
 func runScreener() {
@@ -44,7 +45,7 @@ func runScreener() {
 			continue
 		}
 		start := time.Now().UTC().Add(time.Duration(- 1) * time.Hour)
-		history, err := getPriceHistory(yesID, start, historyFidelitySingle)
+		history, err := gamma.GetPriceHistory(yesID, start, historyFidelitySingle)
 		if err != nil {
 			return
 		}
@@ -90,7 +91,7 @@ func processScreenerEvents(
 	priceMax float64,
 	marketMap *map[string]screenerData,
 ) error {
-	events, err := getEvents(tagSlug)
+	events, err := gamma.GetEvents(tagSlug)
 	if err != nil {
 		return err
 	}
@@ -114,7 +115,7 @@ func processScreenerEvents(
 				if err != nil {
 					log.Fatalf("Unable to parse ID: %s", event.ID)
 				}
-				tags, err := getEventTags(id)
+				tags, err := gamma.GetEventTags(id)
 				if err != nil {
 					log.Fatalf("Failed to get event tags: %v", err)
 				}
