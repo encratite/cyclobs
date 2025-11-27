@@ -76,6 +76,7 @@ type ProfitConfiguration struct {
 	Live bool `yaml:"live"`
 	Categories []CategoryFilter `yaml:"categories"`
 	Ignore []IgnoreFilter `yaml:"ignore"`
+	RenamedSlugs []RenamedSlug `yaml:"renamedSlugs"`
 }
 
 type CategoryFilter struct {
@@ -89,6 +90,11 @@ type CategoryFilter struct {
 type IgnoreFilter struct {
 	Filters []string `yaml:"filters"`
 	Bypass []string `yaml:"bypass"`
+}
+
+type RenamedSlug struct {
+	Old string `yaml:"old"`
+	New string `yaml:"new"`
 }
 
 type SerializableDecimal struct {

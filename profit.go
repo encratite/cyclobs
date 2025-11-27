@@ -23,9 +23,13 @@ const (
 	activityTypeTrade = "TRADE"
 	activitySideBuy = "BUY"
 	activitySideSell = "SELL"
+	activityTypeMerge = "MERGE"
+	activityTypeReward = "REWARD"
 	printResolveMessages = false
 	activityDays = 7
 	printPValue = false
+	outcomeIndexYes = 0
+	outcomeIndexNo = 1
 )
 
 type activityProfit struct {
@@ -33,6 +37,7 @@ type activityProfit struct {
 	category *activityCategory
 	positions []activityPosition
 	sellPrice float64
+	redeemed bool
 	sold bool
 }
 
@@ -52,6 +57,8 @@ type activityPosition struct {
 	outcomeIndex int
 	price float64
 	size float64
+	sold float64
+	removed float64
 }
 
 func analyzeProfits(dateString string) {
@@ -148,6 +155,9 @@ func processActivities(
 	profits *[]activityProfit,
 ) {
 	for _, activity := range activities {
+		if activity.Type == activityTypeReward {
+
+		}
 		timestamp := time.Unix(activity.Timestamp, 0).UTC()
 		if hasDate {
 			if timestamp.Before(date) {
@@ -179,21 +189,54 @@ func processActivities(
 		isBuy := activity.Type == activityTypeTrade && activity.Side == activitySideBuy
 		isSell := activity.Type == activityTypeTrade && activity.Side == activitySideSell
 		isRedeem := activity.Type == activityTypeRedeem
+		isMerge := activity.Type == activityTypeMerge
 		if isBuy {
 			processBuy(activity, timestamp, slug, index, profitExists, categories, profits)
 		} else if isSell && profitExists {
 			profit := &(*profits)[index]
+			remaining := activity.Size
+			for i := range profit.positions {
+				position := &profit.positions[i]
+				if position.outcomeIndex == activity.OutcomeIndex {
+					available := position.size - position.removed
+					sold := min(remaining, available)
+					position.removed += sold
+					remaining -= sold
+				}
+			}
 			profit.sellPrice += activity.USDCSize
 			profit.sold = true
 		} else if isRedeem && profitExists {
 			profit := &(*profits)[index]
-			if profit.sold && profit.sellPrice > 0.0 {
-				// fmt.Printf("Warning: redeem after redeem/sell for %s\n", activity.Slug)
+			if profit.redeemed {
 				continue
 			}
-			market, err := gamma.GetMarket(activity.Slug)
+			slug := activity.Slug
+			for _, rename := range profitConfiguration.RenamedSlugs {
+				if rename.Old == slug {
+					slug = rename.New
+					break
+				}
+			}
+			market, err := gamma.GetMarket(slug)
 			if err != nil {
-				return
+				event, err := gamma.GetEventBySlug(activity.EventSlug)
+				if err != nil {
+					fmt.Printf("Failed to use event fallback: %v\n", err)
+					continue
+				}
+				match := false
+				for _, m := range event.Markets {
+					if len(activity.Slug) < len(m.Slug) && activity.Slug == m.Slug[0:len(activity.Slug)] {
+						market = m
+						match = true
+						break
+					}
+				}
+				if !match {
+					fmt.Printf("Failed to find matching fallback for %s\n", activity.Slug)
+					continue
+				}
 			}
 			sellPrice := 0.0
 			draw := isDraw(market)
@@ -205,13 +248,13 @@ func processActivities(
 				}
 				var outcomeIndex int
 				if *outcome {
-					outcomeIndex = 0
+					outcomeIndex = outcomeIndexYes
 				} else {
-					outcomeIndex = 1
+					outcomeIndex = outcomeIndexNo
 				}
 				for _, position := range profit.positions {
 					if position.outcomeIndex == outcomeIndex {
-						sellPrice += position.size
+						sellPrice += position.size - position.removed
 					}
 				}
 				if printResolveMessages {
@@ -219,11 +262,29 @@ func processActivities(
 				}
 			} else {
 				for _, position := range profit.positions {
-					sellPrice += 0.5 * position.size
+					sellPrice += 0.5 * (position.size - position.removed)
 				}
 			}
 			profit.sellPrice += sellPrice
-			profit.sold = true
+			profit.redeemed = true
+		} else if isMerge && profitExists {
+			profit := &(*profits)[index]
+			remainingYes := activity.Size
+			remainingNo := activity.Size
+			for i := range profit.positions {
+				position := &profit.positions[i]
+				processMerge := func (outcomeIndex int, remaining *float64) {
+					if position.outcomeIndex == outcomeIndex {
+						available := position.size - position.removed
+						merged := min(*remaining, available)
+						position.removed += merged
+						*remaining -= merged
+					}
+				}
+				processMerge(outcomeIndexYes, &remainingYes)
+				processMerge(outcomeIndexNo, &remainingNo)
+			}
+			profit.sellPrice += activity.USDCSize
 		}
 	}
 }
@@ -242,6 +303,7 @@ func processBuy(
 		outcomeIndex: activity.OutcomeIndex,
 		price: price,
 		size: activity.Size,
+		removed: 0.0,
 	}
 	if !profitExists {
 		category := getMatchingCategory(timestamp, slug, categories)
@@ -253,7 +315,7 @@ func processBuy(
 			category: category,
 			positions: []activityPosition{},
 			sellPrice: 0.0,
-			sold: false,
+			redeemed: false,
 		}
 		profit.positions = append(profit.positions, position)
 		*profits = append(*profits, profit)
@@ -319,7 +381,7 @@ func processPositions(categories *[]activityCategory, profits *[]activityProfit)
 			category: category,
 			positions: []activityPosition{profitPosition},
 			sellPrice: sellValue,
-			sold: true,
+			redeemed: true,
 		}
 		*profits = append(*profits, profit)
 	}
@@ -344,7 +406,7 @@ func (c *activityCategory) processProfits() {
 	c.returns = []float64{}
 	c.wins = 0
 	for _, profit := range c.profits {
-		if !profit.sold {
+		if !profit.redeemed && profit.sellPrice == 0.0 {
 			continue
 		}
 		buyPrice := 0.0
@@ -444,9 +506,10 @@ func printCategories(categories []activityCategory, allCategory activityCategory
 	table.Header(header)
 	table.Bulk(rows)
 	table.Render()
-	allCategory.processProfits()
 	if printPValue {
+		allCategory.processProfits()
 		p := allCategory.getPValue()
 		fmt.Printf("\np-value: %.3f\n\n", p)
 	}
+	fmt.Printf("\n")
 }
