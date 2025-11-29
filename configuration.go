@@ -74,6 +74,7 @@ type DatabaseConfiguration struct {
 
 type ProfitConfiguration struct {
 	Live bool `yaml:"live"`
+	Detailed bool `yaml:"detailed"`
 	Categories []CategoryFilter `yaml:"categories"`
 	Ignore []IgnoreFilter `yaml:"ignore"`
 	RenamedSlugs []RenamedSlug `yaml:"renamedSlugs"`

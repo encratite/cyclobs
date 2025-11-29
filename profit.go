@@ -12,6 +12,7 @@ import (
 
 	"github.com/encratite/commons"
 	"github.com/encratite/gamma"
+	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/tw"
 	"gonum.org/v1/gonum/stat"
@@ -26,16 +27,17 @@ const (
 	activityTypeMerge = "MERGE"
 	activityTypeReward = "REWARD"
 	printResolveMessages = false
-	activityDays = 7
 	printPValue = false
+	activityDays = 7
 	outcomeIndexYes = 0
 	outcomeIndexNo = 1
 )
 
-type activityProfit struct {
+type activityMarket struct {
 	slug string
 	category *activityCategory
 	positions []activityPosition
+	buyPrice float64
 	sellPrice float64
 	redeemed bool
 	sold bool
@@ -45,7 +47,7 @@ type activityCategory struct {
 	name string
 	patterns []*regexp.Regexp
 	after *time.Time
-	profits []activityProfit
+	markets []activityMarket
 	lastRow bool
 	totalBuy float64
 	totalProfit float64
@@ -72,12 +74,19 @@ func analyzeProfits(dateString string) {
 	activities := getAllActivities()
 	ignorePatterns, bypassPatterns := getIgnorePatterns()
 	categories := getCategories()
-	profits := []activityProfit{}
-	processActivities(date, hasDate, ignorePatterns, bypassPatterns, activities, &categories, &profits)
+	markets := []activityMarket{}
+	processActivities(date, hasDate, ignorePatterns, bypassPatterns, activities, &categories, &markets)
 	if profitConfiguration.Live {
-		processPositions(&categories, &profits)
+		processPositions(&categories, &markets)
 	}
-	allCategory := getAllCategory(profits)
+	allCategory := getAllCategory(markets)
+	for i := range categories {
+		category := &categories[i]
+		category.processProfits()
+	}
+	if profitConfiguration.Detailed {
+		printCategoriesDetailed(categories)
+	}
 	printCategories(categories, allCategory)
 }
 
@@ -132,7 +141,7 @@ func getCategories() []activityCategory {
 		category := activityCategory{
 			name: categoryData.Name,
 			patterns: patterns,
-			profits: []activityProfit{},
+			markets: []activityMarket{},
 			lastRow: false,
 			totalBuy: categoryData.Bet,
 			totalProfit: categoryData.Profit,
@@ -152,7 +161,7 @@ func processActivities(
 	bypassPatterns []*regexp.Regexp,
 	activities []gamma.Activity,
 	categories *[]activityCategory,
-	profits *[]activityProfit,
+	markets *[]activityMarket,
 ) {
 	for _, activity := range activities {
 		if activity.Type == activityTypeReward {
@@ -182,7 +191,7 @@ func processActivities(
 		if ignored && !bypass {
 			continue
 		}
-		index := slices.IndexFunc(*profits, func (p activityProfit) bool {
+		index := slices.IndexFunc(*markets, func (p activityMarket) bool {
 			return p.slug == slug
 		})
 		profitExists := index >= 0
@@ -191,12 +200,12 @@ func processActivities(
 		isRedeem := activity.Type == activityTypeRedeem
 		isMerge := activity.Type == activityTypeMerge
 		if isBuy {
-			processBuy(activity, timestamp, slug, index, profitExists, categories, profits)
+			processBuy(activity, timestamp, slug, index, profitExists, categories, markets)
 		} else if isSell && profitExists {
-			profit := &(*profits)[index]
+			market := &(*markets)[index]
 			remaining := activity.Size
-			for i := range profit.positions {
-				position := &profit.positions[i]
+			for i := range market.positions {
+				position := &market.positions[i]
 				if position.outcomeIndex == activity.OutcomeIndex {
 					available := position.size - position.removed
 					sold := min(remaining, available)
@@ -204,11 +213,11 @@ func processActivities(
 					remaining -= sold
 				}
 			}
-			profit.sellPrice += activity.USDCSize
-			profit.sold = true
+			market.sellPrice += activity.USDCSize
+			market.sold = true
 		} else if isRedeem && profitExists {
-			profit := &(*profits)[index]
-			if profit.redeemed {
+			market := &(*markets)[index]
+			if market.redeemed {
 				continue
 			}
 			slug := activity.Slug
@@ -218,7 +227,7 @@ func processActivities(
 					break
 				}
 			}
-			market, err := gamma.GetMarket(slug)
+			marketData, err := gamma.GetMarket(slug)
 			if err != nil {
 				event, err := gamma.GetEventBySlug(activity.EventSlug)
 				if err != nil {
@@ -228,7 +237,7 @@ func processActivities(
 				match := false
 				for _, m := range event.Markets {
 					if len(activity.Slug) < len(m.Slug) && activity.Slug == m.Slug[0:len(activity.Slug)] {
-						market = m
+						marketData = m
 						match = true
 						break
 					}
@@ -239,11 +248,11 @@ func processActivities(
 				}
 			}
 			sellPrice := 0.0
-			draw := isDraw(market)
+			draw := isDraw(marketData)
 			if !draw {
-				outcome := getMarketOutcome(market)
+				outcome := getMarketOutcome(marketData)
 				if outcome == nil {
-					fmt.Printf("Warning: no outcome for market %s\n", market.Slug)
+					fmt.Printf("Warning: no outcome for market %s\n", marketData.Slug)
 					continue
 				}
 				var outcomeIndex int
@@ -252,7 +261,7 @@ func processActivities(
 				} else {
 					outcomeIndex = outcomeIndexNo
 				}
-				for _, position := range profit.positions {
+				for _, position := range market.positions {
 					if position.outcomeIndex == outcomeIndex {
 						sellPrice += position.size - position.removed
 					}
@@ -261,18 +270,18 @@ func processActivities(
 					fmt.Printf("Resolved market %s to outcome %d for %s\n", activity.Slug, outcomeIndex, commons.FormatMoney(sellPrice))
 				}
 			} else {
-				for _, position := range profit.positions {
+				for _, position := range market.positions {
 					sellPrice += 0.5 * (position.size - position.removed)
 				}
 			}
-			profit.sellPrice += sellPrice
-			profit.redeemed = true
+			market.sellPrice += sellPrice
+			market.redeemed = true
 		} else if isMerge && profitExists {
-			profit := &(*profits)[index]
+			market := &(*markets)[index]
 			remainingYes := activity.Size
 			remainingNo := activity.Size
-			for i := range profit.positions {
-				position := &profit.positions[i]
+			for i := range market.positions {
+				position := &market.positions[i]
 				processMerge := func (outcomeIndex int, remaining *float64) {
 					if position.outcomeIndex == outcomeIndex {
 						available := position.size - position.removed
@@ -284,7 +293,7 @@ func processActivities(
 				processMerge(outcomeIndexYes, &remainingYes)
 				processMerge(outcomeIndexNo, &remainingNo)
 			}
-			profit.sellPrice += activity.USDCSize
+			market.sellPrice += activity.USDCSize
 		}
 	}
 }
@@ -296,7 +305,7 @@ func processBuy(
 	index int,
 	profitExists bool,
 	categories *[]activityCategory,
-	profits *[]activityProfit,
+	markets *[]activityMarket,
 ) {
 	price := activity.USDCSize / activity.Size
 	position := activityPosition{
@@ -310,7 +319,7 @@ func processBuy(
 		if category == nil {
 			return
 		}
-		profit := activityProfit{
+		profit := activityMarket{
 			slug: slug,
 			category: category,
 			positions: []activityPosition{},
@@ -318,10 +327,10 @@ func processBuy(
 			redeemed: false,
 		}
 		profit.positions = append(profit.positions, position)
-		*profits = append(*profits, profit)
+		*markets = append(*markets, profit)
 	} else {
-		profit := &(*profits)[index]
-		profit.positions = append(profit.positions, position)
+		market := &(*markets)[index]
+		market.positions = append(market.positions, position)
 	}
 }
 
@@ -354,7 +363,7 @@ func getMatchingCategory(timestamp time.Time, slug string, categories *[]activit
 	return category
 }
 
-func processPositions(categories *[]activityCategory, profits *[]activityProfit) {
+func processPositions(categories *[]activityCategory, markets *[]activityMarket) {
 	positions, err := gamma.GetPositions(configuration.Credentials.ProxyAddress)
 	if err != nil {
 		log.Fatalf("Failed to get positions: %v", err)
@@ -370,34 +379,37 @@ func processPositions(categories *[]activityCategory, profits *[]activityProfit)
 		if category == nil {
 			continue
 		}
+		buyPrice := position.InitialValue
 		sellValue := position.Size * position.CurPrice
 		profitPosition := activityPosition{
 			outcomeIndex: 0,
 			price: position.AvgPrice,
 			size: position.Size,
 		}
-		profit := activityProfit{
+		profit := activityMarket{
 			slug: position.Slug,
 			category: category,
 			positions: []activityPosition{profitPosition},
+			buyPrice: buyPrice,
 			sellPrice: sellValue,
-			redeemed: true,
+			redeemed: false,
+			sold: true,
 		}
-		*profits = append(*profits, profit)
+		*markets = append(*markets, profit)
 	}
 }
 
-func getAllCategory(profits []activityProfit) activityCategory {
+func getAllCategory(profits []activityMarket) activityCategory {
 	allCategory := activityCategory{
 		name: "All",
 		patterns: nil,
-		profits: []activityProfit{},
+		markets: []activityMarket{},
 		lastRow: true,
 	}
 	for _, profit := range profits {
 		category := profit.category
-		category.profits = append(category.profits, profit)
-		allCategory.profits = append(allCategory.profits, profit)
+		category.markets = append(category.markets, profit)
+		allCategory.markets = append(allCategory.markets, profit)
 	}
 	return allCategory
 }
@@ -405,18 +417,20 @@ func getAllCategory(profits []activityProfit) activityCategory {
 func (c *activityCategory) processProfits() {
 	c.returns = []float64{}
 	c.wins = 0
-	for _, profit := range c.profits {
-		if !profit.redeemed && profit.sellPrice == 0.0 {
-			continue
-		}
+	for i := range c.markets {
+		market := &c.markets[i]
 		buyPrice := 0.0
-		for _, position := range profit.positions {
+		for _, position := range market.positions {
 			buyPrice += position.size * position.price
 		}
-		delta := profit.sellPrice - buyPrice
+		market.buyPrice = buyPrice
+		if !market.redeemed && market.sellPrice == 0.0 {
+			continue
+		}
+		delta := market.sellPrice - buyPrice
 		c.totalBuy += buyPrice
 		c.totalProfit += delta
-		r := profit.sellPrice / buyPrice - 1.0
+		r := market.sellPrice / buyPrice - 1.0
 		if r > 0.0 {
 			c.wins++
 		}
@@ -459,7 +473,6 @@ func printCategories(categories []activityCategory, allCategory activityCategory
 	}
 	rows := [][]string{}
 	for _, category := range categories {
-		category.processProfits()
 		if len(category.returns) == 0 {
 			continue
 		}
@@ -476,11 +489,15 @@ func printCategories(categories []activityCategory, allCategory activityCategory
 			}
 			rows = append(rows, emptyRow)
 		}
+		totalProfitString := formatNumeric(category.totalProfit, commons.FormatProfit)
+		totalReturnString := formatNumeric(totalReturn, func (value float64) string {
+			return fmt.Sprintf("%+.2f%%", value)
+		})
 		row := []string{
 			category.name,
-			commons.FormatMoney(category.totalProfit),
+			totalProfitString,
 			commons.FormatMoney(category.totalBuy),
-			fmt.Sprintf("%+.2f%%", totalReturn),
+			totalReturnString,
 			fmt.Sprintf("%.1f%%", hitRate),
 			commons.IntToString(len(category.returns)),
 		}
@@ -512,4 +529,30 @@ func printCategories(categories []activityCategory, allCategory activityCategory
 		fmt.Printf("\np-value: %.3f\n\n", p)
 	}
 	fmt.Printf("\n")
+}
+
+func printCategoriesDetailed(categories []activityCategory) {
+	for _, category := range categories {
+		fmt.Printf("\n%s:\n", category.name)
+		for _, market := range category.markets {
+			if market.redeemed || market.sold {
+				delta := market.sellPrice - market.buyPrice
+				profitString := formatNumeric(delta, commons.FormatProfit)
+				fmt.Printf("\t%s: %s\n", market.slug, profitString)
+			}
+		}
+	}
+}
+
+func formatNumeric(value float64, format func (float64) string) string {
+	formatted := format(value)
+	green := color.New(color.FgGreen).SprintFunc()
+	red := color.New(color.FgRed).SprintFunc()
+	if value > 0 {
+		formatted = green(formatted)
+	}
+	if value < 0 {
+		formatted = red(formatted)
+	}
+	return formatted
 }
