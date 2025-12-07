@@ -223,3 +223,11 @@ func backtestMention() {
 	dailyEquityCurve := getDailyEquityCurve(result.equityCurve)
 	plotData("equity", dailyEquityCurve)
 }
+
+func plotData(argument string, data any) {
+	arguments := []string{
+		"python/plot.py",
+		argument,
+	}
+	commons.PythonPipe(arguments, data)
+}
