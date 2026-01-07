@@ -53,6 +53,7 @@ type activityCategory struct {
 	totalProfit float64
 	returns []float64
 	wins int
+	disabled bool
 }
 
 type activityPosition struct {
@@ -63,39 +64,45 @@ type activityPosition struct {
 	removed float64
 }
 
-func analyzeProfits(dateString string) {
+func analyzeProfits(start, end *time.Time) {
 	loadConfiguration()
-	var date time.Time
-	hasDate := false
-	date, err := commons.ParseTime(dateString)
-	if err == nil {
-		hasDate = true
-	}
-	activities := getAllActivities()
+	activities := getAllActivities(start, end)
 	ignorePatterns, bypassPatterns := getIgnorePatterns()
 	categories := getCategories()
 	markets := []activityMarket{}
-	processActivities(date, hasDate, ignorePatterns, bypassPatterns, activities, &categories, &markets)
+	processActivities(ignorePatterns, bypassPatterns, activities, &categories, &markets)
 	if profitConfiguration.Live {
 		processPositions(&categories, &markets)
 	}
 	allCategory := getAllCategory(markets)
 	for i := range categories {
 		category := &categories[i]
-		category.processProfits()
+		if !category.disabled {
+			category.processProfits()
+		}
 	}
+	allCategory.processProfits()
 	if profitConfiguration.Detailed {
 		printCategoriesDetailed(categories)
 	}
 	printCategories(categories, allCategory)
 }
 
-func getAllActivities() []gamma.Activity {
+func getAllActivities(start, end *time.Time) []gamma.Activity {
 	output := []gamma.Activity{}
-	end := time.Now().UTC()
-	for {
-		start := end.Add(time.Duration(- activityDays * hoursPerDay) * time.Hour)
-		activities, err := gamma.GetActivities(configuration.Credentials.ProxyAddress, 0, start, end)
+	currentEnd := time.Now().UTC()
+	if end != nil {
+		currentEnd = *end
+	}
+	running := true
+	for running {
+		currentStart := currentEnd.Add(time.Duration(- activityDays * hoursPerDay) * time.Hour)
+		if start != nil && currentStart.Before(*start) {
+			running = false
+			currentStart = *start
+		}
+		// log.Printf("Activities: currentStart = %s, currentEnd = %s", commons.GetDateString(currentStart), commons.GetDateString(currentEnd))
+		activities, err := gamma.GetActivities(configuration.Credentials.ProxyAddress, 0, currentStart, currentEnd)
 		if err != nil {
 			log.Fatalf("Failed to download activites: %v", err)
 		}
@@ -103,10 +110,10 @@ func getAllActivities() []gamma.Activity {
 		if len(activities) == gamma.ActivityAPILimit {
 			log.Fatalf("Too many activities, decrease activityDays")
 		}
-		if len(activities) == 0 {
+		if len(activities) == 0 && start == nil {
 			break
 		}
-		end = start
+		currentEnd = currentStart
 	}
 	slices.SortFunc(output, func (a, b gamma.Activity) int {
 		return cmp.Compare(a.Timestamp, b.Timestamp)
@@ -145,6 +152,7 @@ func getCategories() []activityCategory {
 			lastRow: false,
 			totalBuy: categoryData.Bet,
 			totalProfit: categoryData.Profit,
+			disabled: categoryData.Disabled,
 		}
 		if categoryData.After != nil {
 			category.after = &categoryData.After.Time
@@ -155,8 +163,6 @@ func getCategories() []activityCategory {
 }
 
 func processActivities(
-	date time.Time,
-	hasDate bool,
 	ignorePatterns []*regexp.Regexp,
 	bypassPatterns []*regexp.Regexp,
 	activities []gamma.Activity,
@@ -164,14 +170,9 @@ func processActivities(
 	markets *[]activityMarket,
 ) {
 	for _, activity := range activities {
-		if activity.Type == activityTypeReward {
-
-		}
 		timestamp := time.Unix(activity.Timestamp, 0).UTC()
-		if hasDate {
-			if timestamp.Before(date) {
-				continue
-			}
+		if activity.Type == activityTypeReward {
+			continue
 		}
 		slug := activity.Slug
 		ignored := false
@@ -376,7 +377,7 @@ func processPositions(categories *[]activityCategory, markets *[]activityMarket)
 			continue
 		}
 		category := getMatchingCategory(date, position.Slug, categories)
-		if category == nil {
+		if category == nil || category.disabled {
 			continue
 		}
 		buyPrice := position.InitialValue
@@ -408,8 +409,10 @@ func getAllCategory(profits []activityMarket) activityCategory {
 	}
 	for _, profit := range profits {
 		category := profit.category
-		category.markets = append(category.markets, profit)
-		allCategory.markets = append(allCategory.markets, profit)
+		if !category.disabled {
+			category.markets = append(category.markets, profit)
+			allCategory.markets = append(allCategory.markets, profit)
+		}
 	}
 	return allCategory
 }
@@ -524,7 +527,6 @@ func printCategories(categories []activityCategory, allCategory activityCategory
 	table.Bulk(rows)
 	table.Render()
 	if printPValue {
-		allCategory.processProfits()
 		p := allCategory.getPValue()
 		fmt.Printf("\np-value: %.3f\n\n", p)
 	}

@@ -2,6 +2,9 @@ package main
 
 import (
 	"flag"
+	"time"
+
+	"github.com/encratite/commons"
 )
 
 func main() {
@@ -21,8 +24,9 @@ func main() {
 	outcomes := flag.Bool("outcomes", false, "Analyze the correlation between prices and outcomes")
 	fights := flag.String("fights", "", "Analyze outcomes of boxing matches or UFC fights")
 	live := flag.String("live", "", "Evaluate live betting trigger levels using on-chain data in the specified directory")
-	profit := flag.Bool("profit", false, "Analyze mean return and risk-adjusted return of trades by category")
-	date := flag.String("date", "", "Used in combination with -profit to restrict the time range of trades evaluated")
+	profit := flag.Bool("profit", false, "Analyze mean return of trades by category")
+	profitStartString := flag.String("profit-start", "", "Override standard range of -profit, limiting it to records after the specified date")
+	profitEndString := flag.String("profit-end", "", "Override standard range of -profit, limiting it to records before the specified date")
 	list := flag.String("list", "", "List markets matching a tag slug")
 	flag.Parse()
 	if *dataMode {
@@ -56,7 +60,16 @@ func main() {
 	} else if *live != "" {
 		evaluateLiveBetting(*live)
 	} else if *profit {
-		analyzeProfits(*date)
+		var profitStart, profitEnd *time.Time
+		if *profitStartString != "" {
+			start := commons.MustParseTime(*profitStartString)
+			profitStart = &start
+		}
+		if *profitEndString != "" {
+			end := commons.MustParseTime(*profitEndString)
+			profitEnd = &end
+		}
+		analyzeProfits(profitStart, profitEnd)
 	} else if *list != "" && *output != "" {
 		listMarkets(*list, *output)
 	} else {
