@@ -107,9 +107,9 @@ var configuration *Configuration
 var profitConfiguration *ProfitConfiguration
 
 func loadConfiguration() {
-	configuration = commons.LoadConfiguration(configurationPath, configuration)
+	configuration = commons.LoadConfiguration[Configuration](configurationPath)
 	configuration.validate()
-	profitConfiguration = commons.LoadConfiguration(profitConfigurationPath, profitConfiguration)
+	profitConfiguration = commons.LoadConfiguration[ProfitConfiguration](profitConfigurationPath)
 }
 
 func (c *Configuration) validate() {
