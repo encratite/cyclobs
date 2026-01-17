@@ -198,7 +198,6 @@ func processActivities(
 		profitExists := index >= 0
 		isBuy := activity.Type == activityTypeTrade && activity.Side == activitySideBuy
 		isSell := activity.Type == activityTypeTrade && activity.Side == activitySideSell
-		isRedeem := activity.Type == activityTypeRedeem
 		isMerge := activity.Type == activityTypeMerge
 		if isBuy {
 			processBuy(activity, timestamp, slug, index, profitExists, categories, markets)
@@ -216,67 +215,6 @@ func processActivities(
 			}
 			market.sellPrice += activity.USDCSize
 			market.sold = true
-		} else if isRedeem && profitExists {
-			market := &(*markets)[index]
-			if market.redeemed {
-				continue
-			}
-			slug := activity.Slug
-			for _, rename := range profitConfiguration.RenamedSlugs {
-				if rename.Old == slug {
-					slug = rename.New
-					break
-				}
-			}
-			marketData, err := gamma.GetMarket(slug)
-			if err != nil {
-				event, err := gamma.GetEventBySlug(activity.EventSlug)
-				if err != nil {
-					fmt.Printf("Failed to use event fallback: %v\n", err)
-					continue
-				}
-				match := false
-				for _, m := range event.Markets {
-					if len(activity.Slug) < len(m.Slug) && activity.Slug == m.Slug[0:len(activity.Slug)] {
-						marketData = m
-						match = true
-						break
-					}
-				}
-				if !match {
-					fmt.Printf("Failed to find matching fallback for %s\n", activity.Slug)
-					continue
-				}
-			}
-			sellPrice := 0.0
-			draw := isDraw(marketData)
-			if !draw {
-				outcome := getMarketOutcome(marketData)
-				if outcome == nil {
-					fmt.Printf("Warning: no outcome for market %s\n", marketData.Slug)
-					continue
-				}
-				var outcomeIndex int
-				if *outcome {
-					outcomeIndex = outcomeIndexYes
-				} else {
-					outcomeIndex = outcomeIndexNo
-				}
-				for _, position := range market.positions {
-					if position.outcomeIndex == outcomeIndex {
-						sellPrice += position.size - position.removed
-					}
-				}
-				if printResolveMessages {
-					fmt.Printf("Resolved market %s to outcome %d for %s\n", activity.Slug, outcomeIndex, commons.FormatMoney(sellPrice))
-				}
-			} else {
-				for _, position := range market.positions {
-					sellPrice += 0.5 * (position.size - position.removed)
-				}
-			}
-			market.sellPrice += sellPrice
-			market.redeemed = true
 		} else if isMerge && profitExists {
 			market := &(*markets)[index]
 			remainingYes := activity.Size
@@ -297,6 +235,7 @@ func processActivities(
 			market.sellPrice += activity.USDCSize
 		}
 	}
+	redeemMarkets(markets)
 }
 
 func processBuy(
@@ -397,6 +336,59 @@ func processPositions(categories *[]activityCategory, markets *[]activityMarket)
 			sold: true,
 		}
 		*markets = append(*markets, profit)
+	}
+}
+
+func redeemMarkets(markets *[]activityMarket) {
+	for index := range *markets {
+		market := &(*markets)[index]
+		if market.redeemed || len(market.positions) == 0 {
+			continue
+		}
+		slug := market.slug
+		for _, rename := range profitConfiguration.RenamedSlugs {
+			if rename.Old == slug {
+				slug = rename.New
+				break
+			}
+		}
+		marketData, err := gamma.GetMarket(slug)
+		if !marketData.Closed {
+			continue
+		}
+		if err != nil {
+			fmt.Printf("Failed to retrieve market %s\n", slug)
+			continue
+		}
+		sellPrice := 0.0
+		draw := isDraw(marketData)
+		if !draw {
+			outcome := getMarketOutcome(marketData)
+			if outcome == nil {
+				fmt.Printf("Warning: no outcome for market %s\n", marketData.Slug)
+				continue
+			}
+			var outcomeIndex int
+			if *outcome {
+				outcomeIndex = outcomeIndexYes
+			} else {
+				outcomeIndex = outcomeIndexNo
+			}
+			for _, position := range market.positions {
+				if position.outcomeIndex == outcomeIndex {
+					sellPrice += position.size - position.removed
+				}
+			}
+			if printResolveMessages {
+				fmt.Printf("Resolved market %s to outcome %d for %s\n", slug, outcomeIndex, commons.FormatMoney(sellPrice))
+			}
+		} else {
+			for _, position := range market.positions {
+				sellPrice += 0.5 * (position.size - position.removed)
+			}
+		}
+		market.sellPrice += sellPrice
+		market.redeemed = true
 	}
 }
 
@@ -535,6 +527,9 @@ func printCategories(categories []activityCategory, allCategory activityCategory
 
 func printCategoriesDetailed(categories []activityCategory) {
 	for _, category := range categories {
+		if len(category.markets) == 0 {
+			continue
+		}
 		fmt.Printf("\n%s:\n", category.name)
 		for _, market := range category.markets {
 			if market.redeemed || market.sold {
